@@ -1,0 +1,78 @@
+# IDE 配置  
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 虚拟环境
+venv/
+ENV/
+env/
+.venv
+
+# uv
+uv.lock
+
+# AI 助手配置 (全局)
+.claude/
+
+# 模型文件 (保留训练好的模型)
+yolo26n.pt
+yolov8n.pt
+models/runs/
+models/trained/weights/
+
+# BMAD/AI 辅助开发临时文件 (本地配置)
+._*
+_bmad-output/
+_/
+memory/
+
+# 数据集原始文件（保留标注配置文件）
+data/images/*.jpg
+data/images/*.png
+!data/images/.gitkeep
+data/labels/*.txt
+!data/labels/.gitkeep
+
+# 日志
+*.log
+logs/
+
+# 配置文件
+config.yaml
+.env
+
+# 暂存文件
+*.tmp
+temp/
+
+# 操作系统
+.DS_Store
+Thumbs.db
+_bmad/
+.history/
+runs/

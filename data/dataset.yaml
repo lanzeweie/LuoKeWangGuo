@@ -1,0 +1,6 @@
+names:
+  0: 奇丽草群组
+path: .
+test: ''
+train: images
+val: images
