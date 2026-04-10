@@ -34,12 +34,15 @@ class WindowManager:
 
     def find_window(self) -> bool:
         """
-        通过进程名查找窗口
+        通过进程名查找窗口，优先选择标题包含"洛克王国"的窗口
 
         Returns:
             True if window found, False otherwise
         """
         self.logger.info(f"查找窗口: {self.process_name}")
+
+        # 收集所有匹配的窗口
+        matched_windows = []
 
         def callback(hwnd, extra):
             if win32gui.IsWindowVisible(hwnd):
@@ -59,9 +62,11 @@ class WindowManager:
                     process_name = process.name().lower()
 
                     if self.process_name in process_name:
-                        self.hwnd = int(hwnd) if not isinstance(hwnd, tuple) else int(hwnd[0])
-                        self.logger.success(f"找到窗口: {window_title}")
-                        return False  # Stop enumeration
+                        matched_windows.append({
+                            'hwnd': int(hwnd) if not isinstance(hwnd, tuple) else int(hwnd[0]),
+                            'title': window_title,
+                            'has_luoke': '洛克王国' in window_title,
+                        })
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                     pass
                 except Exception as e:
@@ -72,17 +77,26 @@ class WindowManager:
             win32gui.EnumWindows(callback, None)
         except Exception as e:
             # 回调返回 False 时会触发此异常，但窗口可能已找到
-            if self.hwnd is None:
-                self.logger.error(f"枚举窗口失败: {e}")
-                return False
+            pass
 
-        if self.hwnd:
-            self.rect = win32gui.GetWindowRect(self.hwnd)
-            return True
+        # 选择最佳窗口：优先选择标题包含"洛克王国"的
+        luoke_windows = [w for w in matched_windows if w['has_luoke']]
+        if luoke_windows:
+            winner = luoke_windows[0]
+        elif matched_windows:
+            winner = matched_windows[0]
+        else:
+            self.logger.error("未找到游戏窗口")
+            self.logger.info("请确保洛克王国游戏已启动")
+            return False
 
-        self.logger.error("未找到游戏窗口")
-        self.logger.info("请确保洛克王国游戏已启动")
-        return False
+        self.hwnd = winner['hwnd']
+        self.logger.success(f"找到窗口: {winner['title']}")
+        self.logger.debug_msg(f"候选窗口数: {len(matched_windows)}, 洛克王国窗口数: {len(luoke_windows)}")
+
+        # 获取初始位置信息
+        self.rect = win32gui.GetWindowRect(self.hwnd)
+        return True
 
     def get_window_rect(self) -> Optional[Tuple[int, int, int, int]]:
         """
@@ -182,12 +196,9 @@ class WindowManager:
             width = client_rect[2]
             height = client_rect[3]
 
-            # 验证客户区尺寸是否匹配期望值
-            expected_w, expected_h = self.client_size
-            if width != expected_w or height != expected_h:
-                self.logger.warning(
-                    f"客户区尺寸 ({width}x{height}) 与期望值 ({expected_w}x{expected_h}) 不一致"
-                )
+            # 更新期望尺寸为实际检测到的值
+            self.client_size = (width, height)
+            self.logger.info(f"实际客户区尺寸: {width}x{height}")
 
             # 应用边框偏移裁剪（去除可能的边框残留）
             offset = self.border_offset

@@ -28,7 +28,7 @@ MATCH_THRESHOLD = 0.80
 TIMEOUT_SECONDS = 3.0
 
 # 模板配置路径
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 CONFIG_PATH = os.path.join(PROJECT_ROOT, "data", "templates", "templates_config.json")
 
 

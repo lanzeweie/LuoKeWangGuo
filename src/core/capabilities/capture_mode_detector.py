@@ -28,20 +28,40 @@ MATCH_THRESHOLD = 0.80
 TIMEOUT_SECONDS = 3.0
 
 # 模板配置路径
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 CONFIG_PATH = os.path.join(PROJECT_ROOT, "data", "templates", "templates_config.json")
 
 
-def _load_roi_from_config(name: str) -> Tuple[int, int, int, int]:
+def _load_roi_from_config(name: str, frame_size: Tuple[int, int] = None) -> Tuple[int, int, int, int]:
     """从配置文件加载指定模板的 ROI 坐标。
 
+    Args:
+        name: 模板名称
+        frame_size: 当前帧尺寸 (width, height)，用于将相对坐标换算为绝对坐标
+
     Returns:
-        (x, y, w, h)
+        (x, y, w, h) 绝对坐标
     """
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             config = json.load(f)
         tpl = config.get("templates", {}).get(name, {})
+
+        # 优先使用相对坐标换算（支持任意分辨率）
+        if frame_size is not None and "rel_x" in tpl and "rel_y" in tpl:
+            fw, fh = frame_size
+            rel_x = tpl.get("rel_x", 0)
+            rel_y = tpl.get("rel_y", 0)
+            rel_w = tpl.get("rel_w", 0)
+            rel_h = tpl.get("rel_h", 0)
+            return (
+                int(rel_x * fw),
+                int(rel_y * fh),
+                int(rel_w * fw),
+                int(rel_h * fh),
+            )
+
+        # 否则使用绝对坐标（基于 1280x720）
         return (
             tpl.get("abs_x", DEFAULT_ROI_X),
             tpl.get("abs_y", DEFAULT_ROI_Y),
@@ -64,16 +84,20 @@ class CaptureModeDetector:
     1. 初始化时加载模板图 → 灰度化 → Canny 边缘提取
     2. 运行时每帧截取 ROI → 灰度化 → Canny 边缘提取
     3. cv2.matchTemplate 匹配，返回 (is_match, confidence)
+
+    支持动态分辨率：构造函数可传入 frame_size，ROI 会根据相对坐标自动换算
     """
 
-    def __init__(self, template_path: str, debug: bool = False):
+    def __init__(self, template_path: str, frame_size: Tuple[int, int] = None, debug: bool = False):
         """
         Args:
             template_path: 模板图片路径
+            frame_size: 当前帧尺寸 (width, height)，用于动态换算 ROI
             debug: 是否启用调试日志
         """
         self.debug = debug
         self.logger = get_logger(debug=debug)
+        self.frame_size = frame_size
 
         if not os.path.exists(template_path):
             raise FileNotFoundError(f"模板图不存在: {template_path}")
@@ -90,6 +114,12 @@ class CaptureModeDetector:
             f"(原始 {raw.shape}, 边缘 {self.template_edge.shape})"
         )
 
+    def _get_roi(self) -> Tuple[int, int, int, int]:
+        """获取当前帧尺寸对应的 ROI 坐标"""
+        if self.frame_size is not None:
+            return _load_roi_from_config("capture_mode", self.frame_size)
+        return (ROI_X, ROI_Y, ROI_W, ROI_H)
+
     def _extract_roi_edge(self, frame: np.ndarray) -> np.ndarray:
         """从帧中截取 ROI 区域并提取边缘。
 
@@ -99,15 +129,24 @@ class CaptureModeDetector:
         Returns:
             ROI 区域的 Canny 边缘图
         """
+        # 获取当前帧对应的 ROI
+        roi_x, roi_y, roi_w, roi_h = self._get_roi()
         h, w = frame.shape[:2]
 
         # 边界保护
-        x1 = max(0, ROI_X)
-        y1 = max(0, ROI_Y)
-        x2 = min(w, ROI_X + ROI_W)
-        y2 = min(h, ROI_Y + ROI_H)
+        x1 = max(0, roi_x)
+        y1 = max(0, roi_y)
+        x2 = min(w, roi_x + roi_w)
+        y2 = min(h, roi_y + roi_h)
 
         roi = frame[y1:y2, x1:x2]
+
+        # 边界保护：确保 ROI 区域有效
+        if roi.size == 0:
+            self.logger.warning(
+                f"ROI 区域为空: ({x1},{y1})->({x2},{y2}), 帧尺寸 {frame.shape[:2]}"
+            )
+            return np.zeros((10, 10), dtype=np.uint8)
 
         if roi.ndim == 3:
             roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)

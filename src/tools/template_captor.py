@@ -198,21 +198,33 @@ class TemplateConfigManager:
         os.makedirs(template_dir, exist_ok=True)
 
     def save_template(self, image: Image.Image, region: Tuple[int, int, int, int], name: str) -> TemplateRegion:
-        """裁剪模板图片并保存"""
+        """裁剪模板图片并保存
+
+        注意：保存的 ROI 区域会比模板稍大（向四周各扩展 5px），
+        以确保模板匹配时有足够的搜索空间。
+        """
         x, y, w, h = region
         img_w, img_h = image.size
 
+        # 1. 裁剪并保存模板（使用用户框选的精确区域）
         template = image.crop((x, y, x + w, y + h))
         template_path = os.path.join(self.template_dir, f"{name}.png")
         template.save(template_path)
 
+        # 2. 保存到配置的 ROI 区域比模板大（向四周各扩展 5px）
+        ROI_EXPAND_PX = 5
+        roi_x = max(0, x - ROI_EXPAND_PX)
+        roi_y = max(0, y - ROI_EXPAND_PX)
+        roi_w = min(w + ROI_EXPAND_PX * 2, img_w - roi_x)
+        roi_h = min(h + ROI_EXPAND_PX * 2, img_h - roi_y)
+
         return TemplateRegion(
             name=name,
-            rel_x=round(x / img_w, 4),
-            rel_y=round(y / img_h, 4),
-            rel_w=round(w / img_w, 4),
-            rel_h=round(h / img_h, 4),
-            abs_x=x, abs_y=y, abs_w=w, abs_h=h,
+            rel_x=round(roi_x / img_w, 4),
+            rel_y=round(roi_y / img_h, 4),
+            rel_w=round(roi_w / img_w, 4),
+            rel_h=round(roi_h / img_h, 4),
+            abs_x=roi_x, abs_y=roi_y, abs_w=roi_w, abs_h=roi_h,
             window_w=img_w, window_h=img_h,
             template_path=template_path,
         )
