@@ -20,8 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.core.capabilities.window_mgr import WindowManager
 from src.core.capabilities.screen_cap import ScreenCaptureWithRegion
-from src.core.capabilities.capture_mode_detector import CaptureModeDetector
-from src.core.capabilities.battle_mode_detector import BattleModeDetector
+from src.detectors import CaptureModeDetector, BattleModeDetector
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -51,7 +50,7 @@ def annotate_roi_on_image(image_path: str, output_path: str, frame_size: tuple =
     capture_roi = capture_detector._get_roi()
 
     # 战斗模式使用全局变量
-    from src.core.capabilities.battle_mode_detector import ROI_X, ROI_Y, ROI_W, ROI_H
+    from src.detectors.battle_mode_detector import ROI_X, ROI_Y, ROI_W, ROI_H
     battle_roi = (ROI_X, ROI_Y, ROI_W, ROI_H)
 
     # 标注捕捉模式 ROI（红色）

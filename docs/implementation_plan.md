@@ -28,11 +28,14 @@ src/
 │       ├── input_sim.py            # 输入模拟
 │       ├── target_scoring.py       # 目标评分
 │       ├── target_verifier.py      # 目标验证（多周期确认）
-│       ├── capture_mode_detector.py # CV 捕捉模式识别
-│       ├── battle_mode_detector.py  # CV 战斗模式识别
 │       ├── layered_overlay.py      # DWM 透明覆盖层
 │       ├── gdi_overlay.py          # GDI 覆盖层（备用）
 │       └── template_loader.py      # 模板配置加载
+│
+├── detectors/                       # ✅ CV 模板检测器 — 已完成
+│   ├── capture_mode_detector.py    # ✅ 精灵球捕捉界面检测（Canny 边缘）
+│   ├── battle_mode_detector.py     # ✅ 战斗界面检测（Canny 边缘）
+│   └── battle_exit_confirm_detector.py  # ✅ 战斗逃跑确认框检测（灰度匹配）
 │
 ├── actions/                         # 行动层 — 高级动作组合
 │   ├── move_controller.py          # WASD 移动执行

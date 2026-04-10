@@ -3,8 +3,8 @@
 战斗退出模块
 
 当检测到战斗状态时，通过 SendInput 发送 ESC 键退出战斗界面，
-然后使用 CV 检测是否出现战斗逃跑同意框，确认后再点击按钮，
-最后通过 BattleModeDetector 轮询确认是否已退出战斗。
+然后使用 BattleExitConfirmDetector 检测是否出现战斗逃跑同意框，
+确认后再点击按钮，最后通过 BattleModeDetector 轮询确认是否已退出战斗。
 
 确认按钮坐标使用相对坐标 (rel_x, rel_y) 存储，
 运行时根据当前帧尺寸换算为绝对坐标。
@@ -15,10 +15,9 @@ import os
 import time
 from typing import Callable, Optional, Tuple
 
-import cv2
 import numpy as np
 
-from src.core.capabilities.battle_mode_detector import BattleModeDetector
+from src.detectors import BattleModeDetector, BattleExitConfirmDetector
 from src.core.capabilities.sendinput_sim import SendInputSimulator
 from src.logger import get_logger
 
@@ -32,18 +31,9 @@ FRAME_RETRY_DELAY = 0.2  # 帧获取失败的重试等待（秒）
 DEFAULT_CONFIRM_REL_X = 0.5
 DEFAULT_CONFIRM_REL_Y = 0.55
 
-# 战斗逃跑同意框默认 ROI（配置缺失时的 fallback）
-DEFAULT_EXIT_CONF_REL_X = 0.3
-DEFAULT_EXIT_CONF_REL_Y = 0.35
-DEFAULT_EXIT_CONF_REL_W = 0.4
-DEFAULT_EXIT_CONF_REL_H = 0.3
-
 # 配置路径
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CONFIG_PATH = os.path.join(PROJECT_ROOT, "data", "templates", "templates_config.json")
-
-# 同意框匹配阈值
-EXIT_CONFIRM_THRESH = 0.65
 
 
 def _load_config() -> dict:
@@ -69,30 +59,6 @@ def _load_confirm_button() -> Tuple[float, float]:
     )
 
 
-def _load_exit_confirm_roi() -> Tuple[float, float, float, float]:
-    """从配置加载战斗逃跑同意框的 ROI。
-
-    Returns:
-        (rel_x, rel_y, rel_w, rel_h)
-    """
-    config = _load_config()
-    roi = config.get("templates", {}).get("battle_exit_confirm", {})
-    return (
-        roi.get("rel_x", DEFAULT_EXIT_CONF_REL_X),
-        roi.get("rel_y", DEFAULT_EXIT_CONF_REL_Y),
-        roi.get("rel_w", DEFAULT_EXIT_CONF_REL_W),
-        roi.get("rel_h", DEFAULT_EXIT_CONF_REL_H),
-    )
-
-
-def load_exit_confirm_template() -> Optional[np.ndarray]:
-    """加载战斗逃跑同意框模板图片"""
-    template_path = os.path.join(PROJECT_ROOT, "data", "templates", "battle_exit_confirm.png")
-    if not os.path.exists(template_path):
-        return None
-    return cv2.imread(template_path)
-
-
 class BattleExit:
     """通过按 ESC + CV 检测同意框 + 点击确认按钮退出战斗状态。"""
 
@@ -100,34 +66,23 @@ class BattleExit:
         self,
         send_input: SendInputSimulator,
         battle_detector: BattleModeDetector,
+        exit_confirm_detector: Optional[BattleExitConfirmDetector] = None,
         debug: bool = False,
     ) -> None:
         """
         Args:
             send_input: SendInputSimulator 实例（已注入）
             battle_detector: BattleModeDetector 实例（用于检测是否还在战斗状态）
+            exit_confirm_detector: BattleExitConfirmDetector 实例（可选，用于检测同意框）
             debug: 是否启用调试日志
         """
         self._send_input = send_input
         self._battle_detector = battle_detector
+        self._exit_confirm_detector = exit_confirm_detector
         self.debug = debug
         self.logger = get_logger(debug=debug)
-        self._exit_confirm_template: Optional[np.ndarray] = None
-        self._exit_confirm_gray: Optional[np.ndarray] = None
         # 每次实例化时加载最新配置
         self._confirm_rel_x, self._confirm_rel_y = _load_confirm_button()
-        self._exit_rel_x, self._exit_rel_y, self._exit_rel_w, self._exit_rel_h = _load_exit_confirm_roi()
-
-    def _load_exit_template_once(self):
-        """加载一次同意框模板，缓存灰度后结果"""
-        if self._exit_confirm_template is None:
-            self._exit_confirm_template = load_exit_confirm_template()
-            if self._exit_confirm_template is None:
-                self.logger.warning("未找到 battle_exit_confirm.png 模板，将跳过同意框 CV 检测")
-            else:
-                self._exit_confirm_gray = cv2.cvtColor(
-                    self._exit_confirm_template, cv2.COLOR_BGR2GRAY
-                )
 
     def _compute_click_pos(self, frame_w: int, frame_h: int) -> Tuple[int, int]:
         """根据当前帧尺寸，将相对坐标转为绝对坐标。"""
@@ -136,17 +91,8 @@ class BattleExit:
             int(self._confirm_rel_y * frame_h),
         )
 
-    def _compute_roi(self, frame_w: int, frame_h: int) -> Tuple[int, int, int, int]:
-        """根据当前帧尺寸，将相对 ROI 转为绝对坐标。"""
-        return (
-            int(self._exit_rel_x * frame_w),
-            int(self._exit_rel_y * frame_h),
-            int(self._exit_rel_w * frame_w),
-            int(self._exit_rel_h * frame_h),
-        )
-
     def _detect_exit_confirm_box(self, frame: np.ndarray) -> Tuple[bool, float]:
-        """检测当前帧中是否出现了战斗逃跑同意框（使用缓存的灰度模板）。
+        """检测当前帧中是否出现了战斗逃跑同意框。
 
         Args:
             frame: 当前帧 (BGR)
@@ -154,26 +100,9 @@ class BattleExit:
         Returns:
             (detected, confidence) — 是否检测到同意框及匹配置信度
         """
-        if self._exit_confirm_gray is None:
+        if self._exit_confirm_detector is None:
             return False, 0.0
-
-        frame_h, frame_w = frame.shape[:2]
-        rx, ry, rw, rh = self._compute_roi(frame_w, frame_h)
-
-        # 边界检查
-        if rx < 0 or ry < 0 or rx + rw > frame_w or ry + rh > frame_h or rw <= 0 or rh <= 0:
-            return False, 0.0
-
-        roi = frame[ry:ry + rh, rx:rx + rw]
-        roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-
-        result = cv2.matchTemplate(roi_gray, self._exit_confirm_gray, cv2.TM_CCOEFF_NORMED)
-        _, max_val, _, _ = cv2.minMaxLoc(result)
-
-        confidence = round(max_val, 4)
-        detected = confidence >= EXIT_CONFIRM_THRESH
-
-        return detected, confidence
+        return self._exit_confirm_detector.is_confirm_box_visible(frame)
 
     def exit_battle(
         self,
@@ -200,7 +129,6 @@ class BattleExit:
             True 表示成功退出战斗状态，False 表示重试后仍在战斗中
         """
         self.logger.info(f"开始退出战斗流程 (max_retries={max_retries})")
-        self._load_exit_template_once()
 
         for attempt in range(1, max_retries + 1):
             current_wait = wait_after_esc + (attempt - 1) * WAIT_INCREMENT
@@ -228,18 +156,18 @@ class BattleExit:
                 continue
 
             # 4. CV 检测战斗逃跑同意框
-            if self._exit_confirm_template is not None:
+            if self._exit_confirm_detector is not None:
                 box_detected, box_conf = self._detect_exit_confirm_box(frame)
                 self.logger.info(
                     f"  战斗逃跑同意框检测: {'检测到' if box_detected else '未检测到'} "
-                    f"(confidence={box_conf:.4f}, threshold={EXIT_CONFIRM_THRESH})"
+                    f"(confidence={box_conf:.4f})"
                 )
 
                 if not box_detected:
                     self.logger.warning("  未检测到同意框，可能 ESC 未生效，继续重试...")
                     continue
             else:
-                self.logger.warning("  跳过同意框 CV 检测（模板未加载）")
+                self.logger.warning("  跳过同意框 CV 检测（检测器未注入）")
 
             # 5. 点击确认按钮
             click_x, click_y = self._compute_click_pos(frame.shape[1], frame.shape[0])
@@ -369,10 +297,24 @@ def test_battle_exit() -> bool:
     # 创建测试用帧
     dummy_frame = np.zeros((720, 1280, 3), dtype=np.uint8)
 
+    # Mock BattleExitConfirmDetector（用于同意框检测）
+    class MockExitConfirmDetector:
+        def __init__(self, detect_results: list[tuple[bool, float]]) -> None:
+            self.detect_results = detect_results
+            self.call_index = 0
+
+        def is_confirm_box_visible(self, frame) -> tuple[bool, float]:
+            if self.call_index < len(self.detect_results):
+                result = self.detect_results[self.call_index]
+                self.call_index += 1
+                return result
+            return False, 0.0
+
     # ── Test 1: 第一次按 ESC 就退出成功 ─────────────────────────────
     print("[Test 1] 第一次按 ESC 后不在战斗 → 返回 True")
     mock_send_input = MockSendInputSimulator()
     mock_battle_detector = MockBattleModeDetector(battle_results=[(False, 0.1)])
+    # 不传入 exit_confirm_detector，跳过同意框检测
     battle_exit = BattleExit(mock_send_input, mock_battle_detector, debug=False)
 
     # 使用极短等待以加快测试

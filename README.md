@@ -120,6 +120,9 @@ uv run python -m src.main --model models/trained/luoke_pet.pt
 # 模型验证
 uv run yolo val model=models/trained/luoke_pet.pt data=data/dataset.yaml
 
+# 窗口诊断（排查窗口和截图问题）
+uv run python -m src.tools.diagnose_window
+
 # 模板截取（获取 CV 模板）
 uv run python -m src.tools.template_captor --capture
 uv run python -m src.tools.template_captor --battle

@@ -87,7 +87,8 @@ LuokeWangGuo/
 │   ├── tools/              # 调试工具
 │   │   ├── __init__.py
 │   │   ├── annotate_roi.py
-��   │   └── template_captor.py
+│   │   ├── diagnose_window.py
+│   │   └── template_captor.py
 │
 │   └── components/          # UI 组件
 │       └── coordinate_picker.py
@@ -115,6 +116,7 @@ LuokeWangGuo/
 | 入口 | 命令 | 说明 |
 |------|------|------|
 | 主程序 | `uv run python -m src.main` | 启动主循环 |
+| 窗口诊断 | `uv run python -m src.tools.diagnose_window` | 诊断窗口和截图问题 |
 | 模板截取 | `uv run python -m src.tools.template_captor` | 获取 CV 模板 |
 | 模型验证 | `uv run yolo val model=models/trained/luoke_pet.pt` | 验证模型 |
 
