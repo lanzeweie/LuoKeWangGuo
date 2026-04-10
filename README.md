@@ -16,7 +16,7 @@ src/
 ├── config.py                        # 配置管理
 │
 ├── core/                            # 能力层 — 底层工具库
-│   ├── context.py                  # (待实现) AppContext — 黑板模式，共享运行时上下文
+│   ├── context.py                  # ✅ AppContext — 黑板模式，共享运行时上下文
 │   ├── state_machine.py            # 状态机 — 状态跳转 + 策略调度
 │   ├── game_logic.py               # 游戏逻辑计算
 │   └── capabilities/               # 核心能力
@@ -38,14 +38,14 @@ src/
 │   ├── aim_and_throw.py            # 瞄准 + 投掷执行
 │   └── battle_exit.py              # ESC 退出战斗
 │
-├── strategies/                      # 策略层 — 业务决策（待实现）
-│   ├── base.py                     # (待实现) Action 枚举 + BaseStrategy 抽象类
-│   ├── search_strategy.py          # (待实现) 搜索策略 — 屏幕怎么移、怎么找精灵
-│   ├── navigation_strategy.py      # (待实现) 导航策略 — WASD 怎么靠近
-│   └── aim_strategy.py             # (待实现) 瞄准策略 — 鼠标怎么瞄准
+├── strategies/                      # ✅ 策略层 — 业务决策
+│   ├── base.py                     # ✅ Action 枚举 + BaseStrategy 抽象类
+│   ├── search_strategy.py          # ✅ 搜索策略 — 屏幕怎么移、怎么找精灵
+│   ├── navigation_strategy.py      # ✅ 导航策略 — WASD 怎么靠近
+│   └── aim_strategy.py             # ✅ 瞄准策略 — 鼠标怎么瞄准
 │
-├── utils/                           # 工具函数 — 纯数学计算（待实现）
-│   └── math_utils.py               # (待实现) 距离、角度、面积
+├── utils/                           # ✅ 工具函数 — 纯数学计算
+│   └── math_utils.py               # ✅ 距离、角度、面积
 │
 ├── tools/                           # 工具模块（GUI / 调试）
 │   ├── template_captor.py          # 模板截取工具
@@ -151,8 +151,8 @@ uv run python -m src.core.capabilities.sendinput_sim --real-test
 | 2. 模型训练 | ✅ 完成 | mAP50=99.5% |
 | 3. 核心模块 | ✅ 完成 | 检测/截屏/移动/投掷/CV/战斗退出 |
 | 4. 架构重构 | ✅ 完成 | 三层架构：能力层/行动层/策略层 |
-| 5. 策略层 | ⏳ 进行中 | AppContext + 搜索/导航/瞄准策略 |
-| 6. 整合测试 | ⏳ 待开始 | 端到端流程验证 |
+| 5. 策略层 | ✅ 完成 | AppContext + 搜索/导航/瞄准策略 (590 行) |
+| 6. 整合测试 | ⏳ 待开始 | 状态机整合 + 端到端流程验证 |
 
 详细计划见 [docs/implementation_plan.md](docs/implementation_plan.md)
 

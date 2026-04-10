@@ -17,7 +17,7 @@ src/
 ├── config.py                        # 配置管理
 │
 ├── core/                            # 能力层 — 底层工具库
-│   ├── context.py                  # (待实现) AppContext — 共享运行时上下文（黑板模式）
+│   ├── context.py                  # ✅ AppContext — 共享运行时上下文（黑板模式）
 │   ├── state_machine.py            # 状态机 — 状态跳转 + 调用策略
 │   ├── game_logic.py               # 游戏逻辑计算
 │   └── capabilities/               # 核心能力
@@ -39,14 +39,14 @@ src/
 │   ├── aim_and_throw.py            # 瞄准 + 投掷执行
 │   └── battle_exit.py              # ESC 退出战斗
 │
-├── strategies/                      # ★ 策略层 — 待实现
-│   ├── base.py                     # (待实现) 策略基类 + Action 枚举
-│   ├── search_strategy.py          # (待实现) 搜索策略 — 屏幕怎么移、怎么找精灵
-│   ├── navigation_strategy.py      # (待实现) 导航策略 — WASD 怎么靠近
-│   └── aim_strategy.py             # (待实现) 瞄准策略 — 鼠标怎么瞄准
+├── strategies/                      # ✅ 策略层 — 已完成
+│   ├── base.py                     # ✅ 策略基类 + Action 枚举
+│   ├── search_strategy.py          # ✅ 搜索策略 — 屏幕怎么移、怎么找精灵
+│   ├── navigation_strategy.py      # ✅ 导航策略 — WASD 怎么靠近
+│   └── aim_strategy.py             # ✅ 瞄准策略 — 鼠标怎么瞄准
 │
-├── utils/                           # ★ 工具函数 — 待实现
-│   └── math_utils.py               # (待实现) 纯数学计算（距离、角度、缩放）
+├── utils/                           # ✅ 工具函数 — 已完成
+│   └── math_utils.py               # ✅ 纯数学计算（距离、角度、缩放）
 │
 ├── tools/                           # 工具模块（GUI / 调试）
 │   ├── template_captor.py          # 模板截取工具
@@ -354,25 +354,27 @@ class StateMachine:
 
 ---
 
-## 待实施
+## 实施进度
 
-### 阶段一：基础设施
+### ✅ 阶段一：基础设施（已完成）
 
-| 步骤 | 模块 | 文件 | 预估行数 | 说明 |
+| 步骤 | 模块 | 文件 | 实际行数 | 状态 |
 |------|------|------|---------|------|
-| 1 | AppContext | `src/core/context.py` | ~40 | 黑板模式，共享运行时上下文 |
-| 2 | 数学工具 | `src/utils/math_utils.py` | ~30 | 从 game_logic.py 提取纯数学函数 |
+| 1 | AppContext | `src/core/context.py` | 70 | ✅ 完成 |
+| 2 | 数学工具 | `src/utils/math_utils.py` | 95 | ✅ 完成 |
 
-### 阶段二：策略层
+### ✅ 阶段二：策略层（已完成）
 
-| 步骤 | 模块 | 文件 | 预估行数 | 说明 |
+| 步骤 | 模块 | 文件 | 实际行数 | 状态 |
 |------|------|------|---------|------|
-| 3 | 策略协议 | `src/strategies/base.py` | ~25 | Action 枚举 + BaseStrategy 抽象类 |
-| 4 | 搜索策略 | `src/strategies/search_strategy.py` | ~80 | 小范围平移搜索 |
-| 5 | 导航策略 | `src/strategies/navigation_strategy.py` | ~100 | WASD 靠近逻辑 |
-| 6 | 瞄准策略 | `src/strategies/aim_strategy.py` | ~60 | 鼠标瞄准 + 投掷触发 |
+| 3 | 策略协议 | `src/strategies/base.py` | 50 | ✅ 完成 |
+| 4 | 搜索策略 | `src/strategies/search_strategy.py` | 95 | ✅ 完成 |
+| 5 | 导航策略 | `src/strategies/navigation_strategy.py` | 165 | ✅ 完成 |
+| 6 | 瞄准策略 | `src/strategies/aim_strategy.py` | 115 | ✅ 完成 |
 
-### 阶段三：状态机整合
+**总计**: 590 行代码，所有模块已测试通过。详见 `docs/strategy_implementation_summary.md`
+
+### ⏳ 阶段三：状态机整合（待开始）
 
 | 步骤 | 模块 | 文件 | 说明 |
 |------|------|------|------|
