@@ -21,10 +21,11 @@ class Config:
     resolution: str = "1280x720"
     width: int = 1280
     height: int = 720
+    border_offset: int = 0  # 边框裁剪偏移（像素）
 
     # 性能配置
-    fps: int = 60
-    device: str = "cpu"
+    fps: int = 30  # 屏幕捕获帧率
+    device: str = "cuda"
 
     # 功能开关
     debug: bool = False
@@ -50,10 +51,11 @@ def parse_args() -> Config:
     # 窗口相关
     parser.add_argument("--process-name", default="NRC-Win64-Shipping.exe", help="游戏进程名")
     parser.add_argument("--resolution", default="1280x720", help="游戏分辨率")
+    parser.add_argument("--border-offset", type=int, default=0, help="边框裁剪偏移（像素），用于去除边框残留")
 
     # 性能相关
-    parser.add_argument("--fps", type=int, default=60, help="帧率限制")
-    parser.add_argument("--device", default="cpu", help="推理设备 (cpu 或 0)")
+    parser.add_argument("--fps", type=int, default=30, help="屏幕捕获帧率")
+    parser.add_argument("--device", default="cuda", help="推理设备 (cuda 或 cpu)")
 
     # 功能开关
     parser.add_argument("--debug", action="store_true", help="调试模式（显示检测框）")
@@ -67,6 +69,7 @@ def parse_args() -> Config:
         confidence_threshold=args.confidence,
         process_name=args.process_name,
         resolution=args.resolution,
+        border_offset=args.border_offset,
         fps=args.fps,
         device=args.device,
         debug=args.debug,

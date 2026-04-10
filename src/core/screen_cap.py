@@ -13,17 +13,14 @@ from src.logger import get_logger
 class ScreenCapture:
     """屏幕捕获器"""
 
-    def __init__(self, region: Optional[Tuple[int, int, int, int]] = None,
-                 fps: int = 60, debug: bool = False):
+    def __init__(self, fps: int = 60, debug: bool = False):
         """
         初始化屏幕捕获
 
         Args:
-            region: 捕获区域 (left, top, right, bottom), None表示全屏
             fps: 目标帧率
             debug: 是否启用调试模式
         """
-        self.region = region
         self.fps = fps
         self.debug = debug
         self.logger = get_logger(debug=debug)
@@ -33,8 +30,13 @@ class ScreenCapture:
         self.frame_count = 0
         self.start_time = 0.0
 
-    def start(self) -> bool:
-        """启动捕获"""
+    def start(self, region: Optional[Tuple[int, int, int, int]] = None) -> bool:
+        """
+        启动捕获
+
+        Args:
+            region: 可选的捕获区域 (left, top, right, bottom)
+        """
         try:
             import dxcam
 
@@ -49,8 +51,13 @@ class ScreenCapture:
             if self.camera is None:
                 raise RuntimeError("创建DXCamera实例失败")
 
+            # 如果传入了 region，在 start 时配置
+            start_kwargs = {"target_fps": self.fps, "video_mode": True}
+            if region is not None:
+                start_kwargs["region"] = region
+
             # 启动捕获（非阻塞模式）
-            self.camera.start(target_fps=self.fps, video_mode=True)
+            self.camera.start(**start_kwargs)
 
             self.logger.success(f"屏幕捕获已启动 (FPS={self.fps})")
             self.frame_count = 0
@@ -86,7 +93,7 @@ class ScreenCapture:
                 time.sleep(self.frame_interval - elapsed)
 
             # Capture frame
-            frame = self.camera.grab(region=self.region)
+            frame = self.camera.grab()
 
             self.last_frame_time = time.time()
             self.frame_count += 1

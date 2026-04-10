@@ -9,6 +9,8 @@ from .detection import ObjectDetector, DetectionResult
 from .input_sim import InputSimulator
 from .game_logic import GameLogic
 from .state_machine import StateMachine, State
+from .gdi_overlay import GDIOverlay
+from .layered_overlay import LayeredOverlay
 
 __all__ = [
     "WindowManager",
@@ -19,4 +21,6 @@ __all__ = [
     "GameLogic",
     "StateMachine",
     "State",
+    "GDIOverlay",
+    "LayeredOverlay",
 ]

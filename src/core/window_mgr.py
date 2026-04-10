@@ -15,8 +15,12 @@ from src.logger import get_logger
 class WindowManager:
     """窗口管理器"""
 
-    def __init__(self, process_name: str = "NRC-Win64-Shipping.exe", debug: bool = False):
+    def __init__(self, process_name: str = "NRC-Win64-Shipping.exe",
+                 client_size: Tuple[int, int] = (1280, 720),
+                 border_offset: int = 0, debug: bool = False):
         self.process_name = process_name.lower()
+        self.client_size = client_size  # 期望的客户区尺寸 (宽, 高)
+        self.border_offset = border_offset  # 额外裁剪边框偏移（像素）
         self.debug = debug
         self.logger = get_logger(debug=debug)
         self.hwnd: Optional[int] = None
@@ -55,7 +59,7 @@ class WindowManager:
                     process_name = process.name().lower()
 
                     if self.process_name in process_name:
-                        self.hwnd = hwnd
+                        self.hwnd = int(hwnd) if not isinstance(hwnd, tuple) else int(hwnd[0])
                         self.logger.success(f"找到窗口: {window_title}")
                         return False  # Stop enumeration
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
@@ -67,8 +71,10 @@ class WindowManager:
         try:
             win32gui.EnumWindows(callback, None)
         except Exception as e:
-            self.logger.error(f"枚举窗口失败: {e}")
-            return False
+            # 回调返回 False 时会触发此异常，但窗口可能已找到
+            if self.hwnd is None:
+                self.logger.error(f"枚举窗口失败: {e}")
+                return False
 
         if self.hwnd:
             self.rect = win32gui.GetWindowRect(self.hwnd)
@@ -175,6 +181,22 @@ class WindowManager:
             left, top = win32gui.ClientToScreen(self.hwnd, (0, 0))
             width = client_rect[2]
             height = client_rect[3]
+
+            # 验证客户区尺寸是否匹配期望值
+            expected_w, expected_h = self.client_size
+            if width != expected_w or height != expected_h:
+                self.logger.warning(
+                    f"客户区尺寸 ({width}x{height}) 与期望值 ({expected_w}x{expected_h}) 不一致"
+                )
+
+            # 应用边框偏移裁剪（去除可能的边框残留）
+            offset = self.border_offset
+            if offset > 0:
+                left += offset
+                top += offset
+                width -= offset * 2
+                height -= offset * 2
+                self.logger.info(f"应用边框裁剪: offset={offset}, 裁剪后区域=({left}, {top}, {width}, {height})")
 
             self.logger.debug_msg(f"捕获区域: ({left}, {top}, {width}, {height})")
             return (left, top, width, height)

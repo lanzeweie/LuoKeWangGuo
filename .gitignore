@@ -57,7 +57,7 @@ data/images/*.png
 !data/images/.gitkeep
 data/labels/*.txt
 !data/labels/.gitkeep
-
+data/demo/
 # 日志
 *.log
 logs/
@@ -76,3 +76,5 @@ Thumbs.db
 _bmad/
 .history/
 runs/
+
+data/labels.cache

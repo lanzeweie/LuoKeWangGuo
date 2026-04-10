@@ -62,7 +62,7 @@ uv run python tools/train.py --data data/dataset.yaml --name luoke_pet
 uv run yolo predict model=models/trained/luoke_pet.pt source=data/images/ save=True
 
 # 单张图片测试
-uv run yolo predict model=models/trained/luoke_pet.pt source=path/to/test.jpg
+uv run yolo predict model=models/trained/luoke_pet.pt source="data/images/PixPin_2026-04-08_20-19-32.png" save_dir=data/demo
 ```
 
 ### 4. 运行主程序
