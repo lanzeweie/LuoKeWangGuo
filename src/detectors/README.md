@@ -12,6 +12,23 @@
 | BattleModeDetector | battle_mode.png | Canny边缘 | 检测战斗界面 |
 | BattleExitConfirmDetector | battle_exit_confirm.png | 灰度匹配 | 检测战斗逃跑确认框 |
 
+## 配置加载工具
+
+`config_loader.py` 提供统一的配置加载和坐标换算功能：
+
+```python
+from src.detectors.config_loader import load_roi_relative, rel_to_abs, load_click_point
+
+# 加载相对坐标 (0.0-1.0)
+rel_roi = load_roi_relative("capture_mode")  # (rel_x, rel_y, rel_w, rel_h)
+
+# 转换为绝对坐标
+abs_roi = rel_to_abs(rel_roi, (1280, 720))  # (abs_x, abs_y, abs_w, abs_h)
+
+# 加载点击点坐标
+click_pos = load_click_point("confirm_button")  # (rel_x, rel_y)
+```
+
 ## 使用方法
 
 ### 基本用法
@@ -55,5 +72,6 @@ is_match, confidence = detector.is_capture_mode(frame)
 1. 在 `data/templates/` 添加模板图片
 2. 在 `templates_config.json` 添加 ROI 配置
 3. 创建检测器类（继承或参考现有实现）
-4. 在 `__init__.py` 导出
-5. 更新本 README
+4. 使用 `config_loader` 加载配置
+5. 在 `__init__.py` 导出
+6. 更新本 README

@@ -16,65 +16,14 @@ from typing import Tuple
 import cv2
 import numpy as np
 
-from src.logger import get_logger
-
-# ── 默认 ROI 配置（当配置文件不存在时使用） ──────────────────────────────────────────────────────────
-DEFAULT_ROI_X = 1206
-DEFAULT_ROI_Y = 614
-DEFAULT_ROI_W = 20
-DEFAULT_ROI_H = 22
+from src.detectors.config_loader import load_roi_relative, rel_to_abs
 
 MATCH_THRESHOLD = 0.80
 TIMEOUT_SECONDS = 3.0
 
-# 模板配置路径
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-CONFIG_PATH = os.path.join(PROJECT_ROOT, "data", "templates", "templates_config.json")
-
-
-def _load_roi_from_config(name: str, frame_size: Tuple[int, int] = None) -> Tuple[int, int, int, int]:
-    """从配置文件加载指定模板的 ROI 坐标。
-
-    Args:
-        name: 模板名称
-        frame_size: 当前帧尺寸 (width, height)，用于将相对坐标换算为绝对坐标
-
-    Returns:
-        (x, y, w, h) 绝对坐标
-    """
-    try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            config = json.load(f)
-        tpl = config.get("templates", {}).get(name, {})
-
-        # 优先使用相对坐标换算（支持任意分辨率）
-        if frame_size is not None and "rel_x" in tpl and "rel_y" in tpl:
-            fw, fh = frame_size
-            rel_x = tpl.get("rel_x", 0)
-            rel_y = tpl.get("rel_y", 0)
-            rel_w = tpl.get("rel_w", 0)
-            rel_h = tpl.get("rel_h", 0)
-            return (
-                int(rel_x * fw),
-                int(rel_y * fh),
-                int(rel_w * fw),
-                int(rel_h * fh),
-            )
-
-        # 否则使用绝对坐标（基于 1280x720）
-        return (
-            tpl.get("abs_x", DEFAULT_ROI_X),
-            tpl.get("abs_y", DEFAULT_ROI_Y),
-            tpl.get("abs_w", DEFAULT_ROI_W),
-            tpl.get("abs_h", DEFAULT_ROI_H),
-        )
-    except Exception:
-        return (DEFAULT_ROI_X, DEFAULT_ROI_Y, DEFAULT_ROI_W, DEFAULT_ROI_H)
-
-
-# 动态加载 ROI
-_roi = _load_roi_from_config("capture_mode")
-ROI_X, ROI_Y, ROI_W, ROI_H = _roi
+# 初始化时加载相对坐标（无 frame_size 时无法换算）
+_roi_rel = load_roi_relative("capture_mode")
+REL_ROI_X, REL_ROI_Y, REL_ROI_W, REL_ROI_H = _roi_rel
 
 
 class CaptureModeDetector:
@@ -117,8 +66,10 @@ class CaptureModeDetector:
     def _get_roi(self) -> Tuple[int, int, int, int]:
         """获取当前帧尺寸对应的 ROI 坐标"""
         if self.frame_size is not None:
-            return _load_roi_from_config("capture_mode", self.frame_size)
-        return (ROI_X, ROI_Y, ROI_W, ROI_H)
+            rel = load_roi_relative("capture_mode")
+            return rel_to_abs(rel, self.frame_size)
+        # 无 frame_size 时使用默认的相对坐标（适用于 1280x720）
+        return (int(REL_ROI_X * 1280), int(REL_ROI_Y * 720), int(REL_ROI_W * 1280), int(REL_ROI_H * 720))
 
     def _extract_roi_edge(self, frame: np.ndarray) -> np.ndarray:
         """从帧中截取 ROI 区域并提取边缘。

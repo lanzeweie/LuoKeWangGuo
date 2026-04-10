@@ -8,53 +8,23 @@ ROI 区域从 templates_config.json 动态加载，避免硬编码。
 使用边缘检测避免背景颜色干扰。
 """
 
-import json
 import os
-import time
 from typing import Tuple
 
 import cv2
 import numpy as np
 
 from src.logger import get_logger
-
-# ── 默认 ROI 配置（当配置文件不存在时使用） ──────────────────────────────────────────────────────────
-DEFAULT_ROI_X = 1200
-DEFAULT_ROI_Y = 638
-DEFAULT_ROI_W = 37
-DEFAULT_ROI_H = 41
+from src.detectors.config_loader import load_roi_relative, rel_to_abs
 
 MATCH_THRESHOLD = 0.80
 TIMEOUT_SECONDS = 3.0
 
-# 模板配置路径
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-CONFIG_PATH = os.path.join(PROJECT_ROOT, "data", "templates", "templates_config.json")
-
-
-def _load_roi_from_config(name: str) -> Tuple[int, int, int, int]:
-    """从配置文件加载指定模板的 ROI 坐标。
-
-    Returns:
-        (x, y, w, h)
-    """
-    try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            config = json.load(f)
-        tpl = config.get("templates", {}).get(name, {})
-        return (
-            tpl.get("abs_x", DEFAULT_ROI_X),
-            tpl.get("abs_y", DEFAULT_ROI_Y),
-            tpl.get("abs_w", DEFAULT_ROI_W),
-            tpl.get("abs_h", DEFAULT_ROI_H),
-        )
-    except Exception:
-        return (DEFAULT_ROI_X, DEFAULT_ROI_Y, DEFAULT_ROI_W, DEFAULT_ROI_H)
-
-
-# 动态加载 ROI
-_roi = _load_roi_from_config("battle_mode")
-ROI_X, ROI_Y, ROI_W, ROI_H = _roi
+# 初始化时加载相对坐标（默认基于 1280x720）
+_roi_rel = load_roi_relative("battle_mode")
+REL_ROI_X, REL_ROI_Y, REL_ROI_W, REL_ROI_H = _roi_rel
+# 默认绝对坐标（1280x720）
+ROI_X, ROI_Y, ROI_W, ROI_H = rel_to_abs(_roi_rel, (1280, 720))
 
 
 class BattleModeDetector:
