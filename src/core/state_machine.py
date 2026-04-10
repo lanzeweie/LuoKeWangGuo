@@ -5,14 +5,17 @@
 """
 
 from enum import Enum
-from typing import Optional
+from typing import Optional, List
 from src.core.detection import DetectionResult
+from src.core.target_scoring import TargetScore
 from src.logger import get_logger
 
 
 class State(Enum):
     """状态枚举"""
     SEARCH = "寻找目标"
+    VERIFY_STATE = "验证目标"
+    MOVE_CLOSER = "靠近目标"
     MOVE_TO_TARGET = "移动到目标"
     THROW = "投掷"
     WAIT = "等待结果"
@@ -23,17 +26,30 @@ class State(Enum):
 class StateMachine:
     """状态机控制器"""
 
-    def __init__(self, debug: bool = False):
+    def __init__(
+        self,
+        max_distance_threshold: float = 50.0,
+        near_threshold: float = 100.0,
+        capture_threshold: float = 200.0,
+        debug: bool = False,
+    ):
         """
         初始化状态机
 
         Args:
+            max_distance_threshold: 太远阈值 (bbox area)
+            near_threshold: 靠近阈值 (bbox area)
+            capture_threshold: 捕捉阈值 (bbox area)
             debug: 是否启用调试模式
         """
+        self._max_distance_threshold = max_distance_threshold
+        self._near_threshold = near_threshold
+        self._capture_threshold = capture_threshold
         self.debug = debug
         self.logger = get_logger(debug=debug)
         self.current_state = State.SEARCH
         self.target: Optional[DetectionResult] = None
+        self.verified_target: Optional[TargetScore] = None
         self.throw_count = 0
         self.max_throws = 3  # 每个目标最大投掷次数
         self.state_start_time: float = 0
@@ -75,6 +91,10 @@ class StateMachine:
         # 状态处理
         if self.current_state == State.SEARCH:
             return self._handle_search(detections)
+        elif self.current_state == State.VERIFY_STATE:
+            return self._handle_verify(detections)
+        elif self.current_state == State.MOVE_CLOSER:
+            return self._handle_move_closer(detections)
         elif self.current_state == State.MOVE_TO_TARGET:
             return self._handle_move(detections)
         elif self.current_state == State.THROW:
@@ -95,22 +115,59 @@ class StateMachine:
                 self.logger.debug_msg("未检测到目标，继续搜索...")
             return State.SEARCH
 
-        # 找到目标，选择置信度最高的
+        # 找到目标，进入验证状态
         self.target = max(detections, key=lambda d: d.confidence)
-        self.logger.success(f"找到目标! 置信度: {self.target.confidence:.3f}")
+        self.logger.success(f"找到目标! 置信度: {self.target.confidence:.3f}，开始验证")
         self.throw_count = 0  # 重置投掷次数
+        self.transition(State.VERIFY_STATE)
+        return self.current_state
 
-        # 检查目标是否在投掷范围内
-        from src.core.game_logic import GameLogic
-        logic = GameLogic(1280, 720)
-        player_pos = (640, 360)  # 画面中心
+    def _handle_verify(self, detections: list) -> State:
+        """处理验证状态 — 等待多周期确认"""
+        if not detections:
+            self.logger.warning("验证时丢失目标，返回搜索状态")
+            self.target = None
+            self.transition(State.SEARCH)
+            return self.current_state
 
-        if logic.should_throw(player_pos, self.target.center):
-            self.logger.info("目标在投掷范围内，准备投掷")
+        # 验证通过，检查距离
+        self.target = max(detections, key=lambda d: d.confidence)
+        cx, cy = self.target.center
+        bbox_area = self.target.area
+
+        if bbox_area < self._max_distance_threshold:
+            # 太远，需要靠近
+            self.logger.info(f"目标太远 (面积={bbox_area}px²)，需要靠近")
+            self.transition(State.MOVE_CLOSER)
+        elif bbox_area < self._near_threshold:
+            # 中等距离，可以投掷
+            self.logger.info(f"目标距离合适 (面积={bbox_area}px²)，准备投掷")
             self.transition(State.THROW)
         else:
-            self.logger.info("目标不在投掷范围内，开始移动")
-            self.transition(State.MOVE_TO_TARGET)
+            # 足够近，投掷
+            self.logger.info(f"目标很近 (面积={bbox_area}px²)，准备投掷")
+            self.transition(State.THROW)
+
+        return self.current_state
+
+    def _handle_move_closer(self, detections: list) -> State:
+        """处理靠近状态 — WASD 小范围移动"""
+        if not detections:
+            self.logger.warning("靠近时丢失目标，返回搜索状态")
+            self.target = None
+            self.transition(State.SEARCH)
+            return self.current_state
+
+        self.target = max(detections, key=lambda d: d.confidence)
+        bbox_area = self.target.area
+
+        if bbox_area >= self._capture_threshold:
+            self.logger.info(f"已足够近 (面积={bbox_area}px²)")
+            self.transition(State.THROW)
+        else:
+            if self.debug:
+                self.logger.debug_msg(f"靠近中... (当前面积={bbox_area}px²)")
+            # TODO: 实际 WASD 移动逻辑
 
         return self.current_state
 
@@ -199,6 +256,7 @@ class StateMachine:
         self.logger.info("重置状态机")
         self.current_state = State.SEARCH
         self.target = None
+        self.verified_target = None
         self.throw_count = 0
 
     def get_state_info(self) -> dict:

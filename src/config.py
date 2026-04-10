@@ -31,6 +31,15 @@ class Config:
     debug: bool = False
     dry_run: bool = False
 
+    # 目标验证
+    detection_interval: float = 2.0        # 检测间隔（秒）
+    verification_cycles: int = 3           # 需要连续检测次数
+    max_distance_threshold: float = 50.0   # 太远阈值 (bbox area)
+    near_threshold: float = 100.0          # 靠近阈值 (bbox area)
+    capture_threshold: float = 200.0       # 捕捉阈值 (bbox area)
+    screen_center_offset_x: int = 0        # 中心 x 偏移
+    screen_center_offset_y: int = 0        # 中心 y 偏移
+
     def __post_init__(self):
         # 解析分辨率
         if "x" in self.resolution:
@@ -61,6 +70,15 @@ def parse_args() -> Config:
     parser.add_argument("--debug", action="store_true", help="调试模式（显示检测框）")
     parser.add_argument("--dry-run", action="store_true", help="试运行（不执行实际操作）")
 
+    # 目标验证
+    parser.add_argument("--detection-interval", type=float, default=2.0, help="检测间隔秒数")
+    parser.add_argument("--verification-cycles", type=int, default=3, help="需要连续检测次数")
+    parser.add_argument("--max-distance", type=float, default=50.0, help="太远阈值 (bbox area)")
+    parser.add_argument("--near-threshold", type=float, default=100.0, help="靠近阈值 (bbox area)")
+    parser.add_argument("--capture-threshold", type=float, default=200.0, help="捕捉阈值 (bbox area)")
+    parser.add_argument("--center-offset-x", type=int, default=0, help="屏幕中心 x 偏移")
+    parser.add_argument("--center-offset-y", type=int, default=0, help="屏幕中心 y 偏移")
+
     args = parser.parse_args()
 
     return Config(
@@ -74,4 +92,11 @@ def parse_args() -> Config:
         device=args.device,
         debug=args.debug,
         dry_run=args.dry_run,
+        detection_interval=args.detection_interval,
+        verification_cycles=args.verification_cycles,
+        max_distance_threshold=args.max_distance,
+        near_threshold=args.near_threshold,
+        capture_threshold=args.capture_threshold,
+        screen_center_offset_x=args.center_offset_x,
+        screen_center_offset_y=args.center_offset_y,
     )

@@ -12,6 +12,7 @@ import win32con
 import numpy as np
 from typing import List, Optional
 from src.core.detection import DetectionResult
+from src.core.target_scoring import TargetScore
 from src.logger import get_logger
 
 # ── Windows 常量 ──
@@ -234,6 +235,133 @@ class LayeredOverlay:
                         buf[y1 - 12:y1 - 6, lx:lx + 4] = [255, 255, 255, 255]
 
             # ── 提交到分层窗口 ──
+            blend = BLENDFUNCTION()
+            blend.BlendOp = AC_SRC_OVER
+            blend.BlendFlags = 0
+            blend.SourceConstantAlpha = 255
+            blend.AlphaFormat = AC_SRC_ALPHA
+
+            pt_dst = POINT(self.x, self.y)
+            size = SIZE(self.width, self.height)
+            pt_src = POINT(0, 0)
+
+            user32.UpdateLayeredWindow(
+                self._hwnd,
+                self._screen_dc,
+                byref(pt_dst),
+                byref(size),
+                self._mem_dc,
+                byref(pt_src),
+                0,
+                byref(blend),
+                ULW_ALPHA
+            )
+
+        except Exception as e:
+            self.logger.error(f"分层窗口绘制失败: {e}")
+
+    # ── 距离状态颜色 ──
+    _DISTANCE_COLORS = {
+        "FAR": (0, 0, 255, 255),      # 红色 (B,G,R,A)
+        "MEDIUM": (0, 255, 255, 255),  # 黄色 (B,G,R,A)
+        "CLOSE": (0, 255, 0, 255),     # 绿色 (B,G,R,A)
+    }
+
+    def draw_scored(
+        self,
+        scored_detections: List[TargetScore],
+        verification_progress: int = 0,
+        verification_required: int = 0,
+        current_state: str = "",
+    ):
+        """
+        绘制带优先级和距离状态的检测结果
+
+        Args:
+            scored_detections: 已评分的目标列表
+            verification_progress: 当前验证进度
+            verification_required: 需要的验证周期数
+            current_state: 当前状态文本
+        """
+        if self._buffer is None or self._hwnd is None:
+            return
+
+        try:
+            buf = self._buffer
+            # 清屏
+            buf[:, :, 0] = 0
+            buf[:, :, 1] = 0
+            buf[:, :, 2] = 0
+            buf[:, :, 3] = 0
+
+            thickness = 3
+
+            for score in scored_detections:
+                det = score.detection
+                x1, y1, x2, y2 = det.x1, det.y1, det.x2, det.y2
+                cx, cy = det.center
+
+                # 根据距离状态选择颜色
+                color = self._DISTANCE_COLORS.get(score.distance_state, (0, 255, 0, 255))
+
+                # ── 画矩形框（颜色编码） ──
+                buf[y1:y1 + thickness, x1:x2] = color
+                buf[y2 - thickness:y2, x1:x2] = color
+                buf[y1:y2, x1:x1 + thickness] = color
+                buf[y1:y2, x2 - thickness:x2] = color
+
+                # ── 画中心点 ──
+                for dy in range(-4, 5):
+                    for dx in range(-4, 5):
+                        if dx * dx + dy * dy <= 16:
+                            py, px = cy + dy, cx + dx
+                            if 0 <= py < self.height and 0 <= px < self.width:
+                                buf[py, px] = [255, 255, 255, 255]
+
+                # ── 优先级标签 (#1, #2, ...) ──
+                rank_label = f"#{score.priority_rank}"
+                for i in range(len(rank_label)):
+                    lx = x1 + 4 + i * 6
+                    if 0 <= lx < self.width and y1 - 14 >= 0:
+                        buf[y1 - 14:y1 - 8, lx:lx + 5] = [255, 255, 255, 255]
+
+                # ── 距离状态标签 ──
+                state_label = score.distance_state
+                base_y = y1 - 22 if y1 - 22 >= 0 else y2 + 6
+                for i in range(len(state_label)):
+                    lx = x1 + 4 + i * 6
+                    if 0 <= lx < self.width and 0 <= base_y < self.height and base_y + 6 < self.height:
+                        buf[base_y:base_y + 6, lx:lx + 5] = color
+
+            # ── 验证进度条 ──
+            if verification_required > 0 and verification_progress > 0:
+                bar_width = 60
+                bar_height = 6
+                bar_x = self.width // 2 - bar_width // 2
+                bar_y = 10
+
+                # 背景（灰色）
+                buf[bar_y:bar_y + bar_height, bar_x:bar_x + bar_width] = [128, 128, 128, 200]
+                # 进度（绿色）
+                filled = int(bar_width * verification_progress / verification_required)
+                if filled > 0:
+                    buf[bar_y:bar_y + bar_height, bar_x:bar_x + filled] = [0, 255, 0, 255]
+
+                # 文字 "V:2/3"
+                progress_text = f"V:{verification_progress}/{verification_required}"
+                for i in range(len(progress_text)):
+                    lx = bar_x + bar_width + 8 + i * 6
+                    if lx + 5 < self.width:
+                        buf[bar_y:bar_y + 6, lx:lx + 5] = [255, 255, 255, 255]
+
+            # ── 状态文本 ──
+            if current_state:
+                for i in range(len(current_state)):
+                    lx = 10 + i * 6
+                    if lx + 5 < self.width:
+                        buf[10:10 + 6, lx:lx + 5] = [255, 255, 255, 255]
+
+            # ── 提交 ──
             blend = BLENDFUNCTION()
             blend.BlendOp = AC_SRC_OVER
             blend.BlendFlags = 0

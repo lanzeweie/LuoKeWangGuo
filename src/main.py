@@ -16,8 +16,11 @@ from src.core import (
     ScreenCapture,
     ObjectDetector,
     LayeredOverlay,
+    StateMachine,
     DetectionResult,
 )
+from src.core.target_scoring import TargetScorer
+from src.core.target_verifier import TargetVerifier
 from src.logger import get_logger
 
 
@@ -91,8 +94,34 @@ def run_live_detection(args):
 
     # ── 主循环 ──
     capture_interval = 1.0 / args.fps
+
+    # 目标评分器
+    scorer = TargetScorer(
+        screen_width=args.width,
+        screen_height=args.height,
+        max_distance_threshold=args.max_distance_threshold,
+        near_threshold=args.near_threshold,
+        capture_threshold=args.capture_threshold,
+        center_offset_x=args.screen_center_offset_x,
+        center_offset_y=args.screen_center_offset_y,
+    )
+
+    # 目标验证器
+    verifier = TargetVerifier(
+        required_cycles=args.verification_cycles,
+        debug=args.debug,
+    )
+
+    state_machine = StateMachine(
+        max_distance_threshold=args.max_distance_threshold,
+        near_threshold=args.near_threshold,
+        capture_threshold=args.capture_threshold,
+        debug=args.debug,
+    )
+
+    # 检测间隔（可配置）
+    detect_interval = args.detection_interval
     last_detect_time = 0.0
-    detect_interval = 1.0 / 15  # 检测限 15 FPS
 
     cached_detections: list = []
     last_log_time = time.time()
@@ -119,24 +148,43 @@ def run_live_detection(args):
 
                 frame_count += 1
 
-                # ── 检测（限 15 FPS，避免 GPU 过载） ──
+                # ── 检测（按可配置间隔，避免 GPU 过载） ──
                 now = time.time()
                 if (now - last_detect_time) >= detect_interval:
                     detections = detector.detect(frame, target_class=args.target_class)
                     last_detect_time = now
 
-                    # ── 只在结果变化时更新覆盖层 ──
-                    if detections_changed(cached_detections, detections):
-                        overlay.draw(detections)
-                        overlay_updates += 1
-                        cached_detections = detections
+                    # ── 评分与排序 ──
+                    scored = scorer.score_detections(detections)
+                    cached_scored = scored
+
+                    # ── 验证 ──
+                    verified, verified_target = verifier.process_cycle(scored)
+
+                    if verified:
+                        logger.success(
+                            f"目标验证通过! 优先级={verified_target.priority_rank}, "
+                            f"距离={verified_target.distance_to_center:.0f}px, "
+                            f"状态={verified_target.distance_state}"
+                        )
+
+                    # ── 更新覆盖层 ──
+                    overlay.draw_scored(
+                        scored,
+                        verification_progress=verifier.verification_progress,
+                        verification_required=args.verification_cycles,
+                        current_state="SEARCH",
+                    )
+                    overlay_updates += 1
+                    cached_detections = detections
 
                 # ── 每秒打印统计 ──
                 if now - last_log_time >= 1.0:
                     logger.info(
                         f"捕获: {frame_count}/s | "
                         f"覆盖更新: {overlay_updates}/s | "
-                        f"目标: {len(cached_detections)}"
+                        f"目标: {len(cached_detections)} | "
+                        f"验证: {verifier.verification_progress}/{args.verification_cycles}"
                     )
                     frame_count = 0
                     overlay_updates = 0
@@ -166,7 +214,9 @@ def main():
     print(f"  目标类别: {args.target_class}")
     print(f"  置信度阈值: {args.confidence_threshold}")
     print(f"  游戏进程: {args.process_name}")
-    print(f"  捕获: {args.fps} FPS | 检测: 15 FPS")
+    print(f"  捕获: {args.fps} FPS | 检测: 每 {args.detection_interval}s")
+    print(f"  验证周期: {args.verification_cycles} 次")
+    print(f"  距离阈值: FAR<{args.max_distance_threshold} | MEDIUM<{args.near_threshold} | CLOSE>={args.capture_threshold}")
     print(f"  调试模式: {'是' if args.debug else '否'}")
     print("=" * 60)
 

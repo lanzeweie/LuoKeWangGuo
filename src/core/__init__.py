@@ -11,6 +11,8 @@ from .game_logic import GameLogic
 from .state_machine import StateMachine, State
 from .gdi_overlay import GDIOverlay
 from .layered_overlay import LayeredOverlay
+from .target_scoring import TargetScorer, TargetScore
+from .target_verifier import TargetVerifier
 
 __all__ = [
     "WindowManager",
@@ -23,4 +25,7 @@ __all__ = [
     "State",
     "GDIOverlay",
     "LayeredOverlay",
+    "TargetScorer",
+    "TargetScore",
+    "TargetVerifier",
 ]
