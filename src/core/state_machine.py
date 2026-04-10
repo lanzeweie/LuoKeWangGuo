@@ -4,10 +4,12 @@
 管理捕捉流程的状态转换
 """
 
+import time
 from enum import Enum
 from typing import Optional, List
 from src.core.detection import DetectionResult
 from src.core.target_scoring import TargetScore
+from src.core.target_verifier import TargetVerifier
 from src.logger import get_logger
 
 
@@ -28,23 +30,17 @@ class StateMachine:
 
     def __init__(
         self,
-        max_distance_threshold: float = 50.0,
-        near_threshold: float = 100.0,
-        capture_threshold: float = 200.0,
+        verifier: TargetVerifier,
         debug: bool = False,
     ):
         """
         初始化状态机
 
         Args:
-            max_distance_threshold: 太远阈值 (bbox area)
-            near_threshold: 靠近阈值 (bbox area)
-            capture_threshold: 捕捉阈值 (bbox area)
+            verifier: 目标验证器实例
             debug: 是否启用调试模式
         """
-        self._max_distance_threshold = max_distance_threshold
-        self._near_threshold = near_threshold
-        self._capture_threshold = capture_threshold
+        self._verifier = verifier
         self.debug = debug
         self.logger = get_logger(debug=debug)
         self.current_state = State.SEARCH
@@ -66,21 +62,18 @@ class StateMachine:
         if new_state != self.current_state:
             self.logger.info(f"状态转换: {self.current_state.value} → {new_state.value}")
             self.current_state = new_state
-            import time
             self.state_start_time = time.time()
 
-    def update(self, detections: list) -> State:
+    def update(self, scored_detections: List[TargetScore]) -> State:
         """
         更新状态机
 
         Args:
-            detections: 当前检测到的目标列表
+            scored_detections: 已评分和排序的目标列表
 
         Returns:
             新的当前状态
         """
-        import time
-
         # 检查状态超时
         elapsed = time.time() - self.state_start_time
         if elapsed > self.timeout_threshold:
@@ -90,13 +83,13 @@ class StateMachine:
 
         # 状态处理
         if self.current_state == State.SEARCH:
-            return self._handle_search(detections)
+            return self._handle_search(scored_detections)
         elif self.current_state == State.VERIFY_STATE:
-            return self._handle_verify(detections)
+            return self._handle_verify(scored_detections)
         elif self.current_state == State.MOVE_CLOSER:
-            return self._handle_move_closer(detections)
+            return self._handle_move_closer(scored_detections)
         elif self.current_state == State.MOVE_TO_TARGET:
-            return self._handle_move(detections)
+            return self._handle_move(scored_detections)
         elif self.current_state == State.THROW:
             return self._handle_throw()
         elif self.current_state == State.WAIT:
@@ -108,86 +101,83 @@ class StateMachine:
 
         return self.current_state
 
-    def _handle_search(self, detections: list) -> State:
+    def _handle_search(self, scored: List[TargetScore]) -> State:
         """处理搜索状态"""
-        if not detections:
+        if not scored:
             if self.debug:
                 self.logger.debug_msg("未检测到目标，继续搜索...")
             return State.SEARCH
 
-        # 找到目标，进入验证状态
-        self.target = max(detections, key=lambda d: d.confidence)
-        self.logger.success(f"找到目标! 置信度: {self.target.confidence:.3f}，开始验证")
+        # 找到目标，重置验证器并进入验证状态
+        top = scored[0]
+        self.target = top.detection
+        self._verifier.reset()
+        self.logger.success(f"找到目标! 置信度: {top.detection.confidence:.3f}，开始验证")
         self.throw_count = 0  # 重置投掷次数
         self.transition(State.VERIFY_STATE)
         return self.current_state
 
-    def _handle_verify(self, detections: list) -> State:
-        """处理验证状态 — 等待多周期确认"""
-        if not detections:
-            self.logger.warning("验证时丢失目标，返回搜索状态")
-            self.target = None
-            self.transition(State.SEARCH)
+    def _handle_verify(self, scored: List[TargetScore]) -> State:
+        """处理验证状态 — 由 TargetVerifier 驱动多周期确认"""
+        verified, verified_target = self._verifier.process_cycle(scored)
+
+        if verified:
+            # 验证通过，根据距离状态决定下一步
+            self.verified_target = verified_target
+            self.target = verified_target.detection
+            self.logger.success(
+                f"验证通过 → 距离={verified_target.distance_state} "
+                f"(面积={verified_target.bbox_area:.0f}px²)"
+            )
+            if verified_target.distance_state == "FAR":
+                self.transition(State.MOVE_CLOSER)
+            else:
+                self.transition(State.THROW)
             return self.current_state
 
-        # 验证通过，检查距离
-        self.target = max(detections, key=lambda d: d.confidence)
-        cx, cy = self.target.center
-        bbox_area = self.target.area
+        # 验证未完成，继续等待
+        if self.debug:
+            self.logger.debug_msg(
+                f"验证中 {self._verifier.verification_progress}/{self._verifier.required_cycles}"
+            )
+        return State.VERIFY_STATE
 
-        if bbox_area < self._max_distance_threshold:
-            # 太远，需要靠近
-            self.logger.info(f"目标太远 (面积={bbox_area}px²)，需要靠近")
-            self.transition(State.MOVE_CLOSER)
-        elif bbox_area < self._near_threshold:
-            # 中等距离，可以投掷
-            self.logger.info(f"目标距离合适 (面积={bbox_area}px²)，准备投掷")
-            self.transition(State.THROW)
-        else:
-            # 足够近，投掷
-            self.logger.info(f"目标很近 (面积={bbox_area}px²)，准备投掷")
-            self.transition(State.THROW)
-
-        return self.current_state
-
-    def _handle_move_closer(self, detections: list) -> State:
+    def _handle_move_closer(self, scored: List[TargetScore]) -> State:
         """处理靠近状态 — WASD 小范围移动"""
-        if not detections:
+        if not scored:
             self.logger.warning("靠近时丢失目标，返回搜索状态")
             self.target = None
+            self._verifier.reset()
             self.transition(State.SEARCH)
             return self.current_state
 
-        self.target = max(detections, key=lambda d: d.confidence)
-        bbox_area = self.target.area
+        top = scored[0]
+        self.target = top.detection
 
-        if bbox_area >= self._capture_threshold:
-            self.logger.info(f"已足够近 (面积={bbox_area}px²)")
+        if top.distance_state in ("MEDIUM", "CLOSE"):
+            self.logger.info(f"已足够近 (面积={top.bbox_area:.0f}px²)")
             self.transition(State.THROW)
         else:
             if self.debug:
-                self.logger.debug_msg(f"靠近中... (当前面积={bbox_area}px²)")
+                self.logger.debug_msg(f"靠近中... (当前面积={top.bbox_area:.0f}px², FAR)")
             # TODO: 实际 WASD 移动逻辑
 
         return self.current_state
 
-    def _handle_move(self, detections: list) -> State:
+    def _handle_move(self, scored: List[TargetScore]) -> State:
         """处理移动状态"""
-        if not detections:
+        if not scored:
             self.logger.warning("移动时丢失目标，返回搜索状态")
             self.target = None
+            self._verifier.reset()
             self.transition(State.SEARCH)
             return self.current_state
 
         # 更新目标
-        self.target = max(detections, key=lambda d: d.confidence)
+        top = scored[0]
+        self.target = top.detection
 
-        # 检查是否到达投掷范围
-        from src.core.game_logic import GameLogic
-        logic = GameLogic(1280, 720)
-        player_pos = (640, 360)
-
-        if logic.should_throw(player_pos, self.target.center):
+        if top.distance_state in ("MEDIUM", "CLOSE"):
             self.logger.info("已到达投掷范围")
             self.transition(State.THROW)
         else:
@@ -211,10 +201,9 @@ class StateMachine:
         if self.debug:
             self.logger.debug_msg("等待投掷结果...")
 
-        # 这里需要等待一段时间或检测投掷结果
-        # 简化实现：等待固定时间后检查是否还需要继续
-        import time
-        time.sleep(1.5)  # 等待1.5秒
+        elapsed = time.time() - self.state_start_time
+        if elapsed < 1.5:
+            return State.WAIT  # 未达标，继续等待
 
         # 检查是否达到最大投掷次数
         if self.throw_count >= self.max_throws:
@@ -231,8 +220,10 @@ class StateMachine:
         if self.debug:
             self.logger.debug_msg("冷却中...")
 
-        import time
-        time.sleep(2.0)  # 冷却2秒
+        elapsed = time.time() - self.state_start_time
+        if elapsed < 2.0:
+            return State.COOLDOWN  # 未达标，继续冷却
+
         self.target = None
         self.transition(State.SEARCH)
 
@@ -241,8 +232,11 @@ class StateMachine:
     def _handle_error(self) -> State:
         """处理错误状态"""
         self.logger.error("进入错误状态，尝试恢复...")
-        import time
-        time.sleep(2.0)  # 等待2秒
+
+        elapsed = time.time() - self.state_start_time
+        if elapsed < 2.0:
+            return State.ERROR  # 未达标，继续等待
+
         self.target = None
         self.transition(State.SEARCH)
         return self.current_state
@@ -258,6 +252,7 @@ class StateMachine:
         self.target = None
         self.verified_target = None
         self.throw_count = 0
+        self._verifier.reset()
 
     def get_state_info(self) -> dict:
         """
@@ -266,7 +261,6 @@ class StateMachine:
         Returns:
             状态信息字典
         """
-        import time
         elapsed = time.time() - self.state_start_time
 
         return {
@@ -285,10 +279,12 @@ def test_state_machine():
     logger.info("=" * 50)
 
     from src.core.detection import DetectionResult
+    from src.core.target_scoring import TargetScore
 
     # 测试1: 初始化
     logger.info("\n[测试1] 初始化状态机...")
-    sm = StateMachine(debug=True)
+    verifier = TargetVerifier(required_cycles=3, debug=True)
+    sm = StateMachine(verifier=verifier, debug=True)
     logger.info(f"初始状态: {sm.current_state.value}")
 
     # 测试2: 搜索状态 - 无目标
@@ -298,8 +294,15 @@ def test_state_machine():
 
     # 测试3: 搜索状态 - 找到目标
     logger.info("\n[测试3] 搜索状态 (找到目标)...")
-    detections = [DetectionResult(800, 400, 850, 450, 0.92, 0)]
-    state = sm.update(detections)
+    det = DetectionResult(800, 400, 850, 450, 0.92, 0)
+    scored = [TargetScore(
+        detection=det,
+        distance_to_center=50.0,
+        bbox_area=2500.0,
+        distance_state="MEDIUM",
+        priority_rank=1,
+    )]
+    state = sm.update(scored)
     logger.info(f"当前状态: {state.value}")
     logger.info(f"目标信息: {sm.target.center if sm.target else 'None'}")
 

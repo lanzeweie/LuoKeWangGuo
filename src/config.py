@@ -40,6 +40,12 @@ class Config:
     screen_center_offset_x: int = 0        # 中心 x 偏移
     screen_center_offset_y: int = 0        # 中心 y 偏移
 
+    # 模式检测
+    capture_mode_template: str = ""         # 精灵球模式模板路径
+    battle_mode_template: str = ""          # 战斗模式模板路径
+    mode_match_threshold: float = 0.8       # 模板匹配阈值
+    mode_timeout: float = 3.0               # 模式检测超时（秒）
+
     def __post_init__(self):
         # 解析分辨率
         if "x" in self.resolution:
@@ -79,6 +85,12 @@ def parse_args() -> Config:
     parser.add_argument("--center-offset-x", type=int, default=0, help="屏幕中心 x 偏移")
     parser.add_argument("--center-offset-y", type=int, default=0, help="屏幕中心 y 偏移")
 
+    # 模式检测
+    parser.add_argument("--capture-template", default="", help="精灵球模式模板图路径")
+    parser.add_argument("--battle-template", default="", help="战斗模式模板图路径")
+    parser.add_argument("--match-threshold", type=float, default=0.8, help="模板匹配阈值")
+    parser.add_argument("--mode-timeout", type=float, default=3.0, help="模式检测超时（秒）")
+
     args = parser.parse_args()
 
     return Config(
@@ -99,4 +111,8 @@ def parse_args() -> Config:
         capture_threshold=args.capture_threshold,
         screen_center_offset_x=args.center_offset_x,
         screen_center_offset_y=args.center_offset_y,
+        capture_mode_template=args.capture_template,
+        battle_mode_template=args.battle_template,
+        mode_match_threshold=args.match_threshold,
+        mode_timeout=args.mode_timeout,
     )

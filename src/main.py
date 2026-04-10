@@ -17,22 +17,10 @@ from src.core import (
     ObjectDetector,
     LayeredOverlay,
     StateMachine,
-    DetectionResult,
 )
 from src.core.target_scoring import TargetScorer
 from src.core.target_verifier import TargetVerifier
 from src.logger import get_logger
-
-
-def detections_changed(old: list[DetectionResult], new: list[DetectionResult], threshold: int = 20) -> bool:
-    """判断检测结果是否发生了显著变化"""
-    if len(old) != len(new):
-        return True
-    for o, n in zip(sorted(old, key=lambda d: d.center[0]),
-                     sorted(new, key=lambda d: d.center[0])):
-        if abs(o.x1 - n.x1) > threshold or abs(o.y1 - n.y1) > threshold:
-            return True
-    return len(old) == 0 and len(new) > 0  # 从无到有
 
 
 def run_live_detection(args):
@@ -113,9 +101,7 @@ def run_live_detection(args):
     )
 
     state_machine = StateMachine(
-        max_distance_threshold=args.max_distance_threshold,
-        near_threshold=args.near_threshold,
-        capture_threshold=args.capture_threshold,
+        verifier=verifier,
         debug=args.debug,
     )
 
@@ -123,7 +109,7 @@ def run_live_detection(args):
     detect_interval = args.detection_interval
     last_detect_time = 0.0
 
-    cached_detections: list = []
+    cached_scored: list = []
     last_log_time = time.time()
     frame_count = 0
     overlay_updates = 0
@@ -158,33 +144,27 @@ def run_live_detection(args):
                     scored = scorer.score_detections(detections)
                     cached_scored = scored
 
-                    # ── 验证 ──
-                    verified, verified_target = verifier.process_cycle(scored)
-
-                    if verified:
-                        logger.success(
-                            f"目标验证通过! 优先级={verified_target.priority_rank}, "
-                            f"距离={verified_target.distance_to_center:.0f}px, "
-                            f"状态={verified_target.distance_state}"
-                        )
+                    # ── 状态机驱动 ──
+                    state_machine.update(scored)
 
                     # ── 更新覆盖层 ──
                     overlay.draw_scored(
                         scored,
-                        verification_progress=verifier.verification_progress,
+                        verification_progress=state_machine._verifier.verification_progress,
                         verification_required=args.verification_cycles,
-                        current_state="SEARCH",
+                        current_state=state_machine.current_state.value,
                     )
                     overlay_updates += 1
-                    cached_detections = detections
 
                 # ── 每秒打印统计 ──
                 if now - last_log_time >= 1.0:
+                    state_info = state_machine.get_state_info()
                     logger.info(
+                        f"状态: {state_info['current_state']} | "
                         f"捕获: {frame_count}/s | "
                         f"覆盖更新: {overlay_updates}/s | "
-                        f"目标: {len(cached_detections)} | "
-                        f"验证: {verifier.verification_progress}/{args.verification_cycles}"
+                        f"目标: {len(cached_scored)} | "
+                        f"验证: {state_info.get('throw_count', 0)}"
                     )
                     frame_count = 0
                     overlay_updates = 0
