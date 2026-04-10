@@ -17,7 +17,7 @@ src/
 ├── config.py                        # 配置管理
 │
 ├── core/                            # 能力层 — 底层工具库
-│   ├── context.py                  # ✅ AppContext — 共享运行时上下文（黑板模式）
+│   ├── context.py                  # AppContext — 共享运行时上下文（黑板模式）
 │   ├── state_machine.py            # 状态机 — 状态跳转 + 调用策略
 │   ├── game_logic.py               # 游戏逻辑计算
 │   └── capabilities/               # 核心能力
@@ -32,24 +32,24 @@ src/
 │       ├── gdi_overlay.py          # GDI 覆盖层（备用）
 │       └── template_loader.py      # 模板配置加载
 │
-├── detectors/                       # ✅ CV 模板检测器 — 已完成
-│   ├── capture_mode_detector.py    # ✅ 精灵球捕捉界面检测（Canny 边缘）
-│   ├── battle_mode_detector.py     # ✅ 战斗界面检测（Canny 边缘）
-│   └── battle_exit_confirm_detector.py  # ✅ 战斗逃跑确认框检测（灰度匹配）
+├── detectors/                       # CV 模板检测器
+│   ├── capture_mode_detector.py    # 精灵球捕捉界面检测（Canny 边缘）
+│   ├── battle_mode_detector.py     # 战斗界面检测（Canny 边缘）
+│   └── battle_exit_confirm_detector.py  # 战斗逃跑确认框检测（灰度匹配）
 │
 ├── actions/                         # 行动层 — 高级动作组合
 │   ├── move_controller.py          # WASD 移动执行
 │   ├── aim_and_throw.py            # 瞄准 + 投掷执行
 │   └── battle_exit.py              # ESC 退出战斗
 │
-├── strategies/                      # ✅ 策略层 — 已完成
-│   ├── base.py                     # ✅ 策略基类 + Action 枚举
-│   ├── search_strategy.py          # ✅ 搜索策略 — 屏幕怎么移、怎么找精灵
-│   ├── navigation_strategy.py      # ✅ 导航策略 — WASD 怎么靠近
-│   └── aim_strategy.py             # ✅ 瞄准策略 — 鼠标怎么瞄准
+├── strategies/                      # 策略层
+│   ├── base.py                     # 策略基类 + Action 枚举
+│   ├── search_strategy.py          # 搜索策略 — 屏幕怎么移、怎么找精灵
+│   ├── navigation_strategy.py      # 导航策略 — WASD 怎么靠近
+│   └── aim_strategy.py             # 瞄准策略 — 鼠标怎么瞄准
 │
-├── utils/                           # ✅ 工具函数 — 已完成
-│   └── math_utils.py               # ✅ 纯数学计算（距离、角度、缩放）
+├── utils/                           # 工具函数
+│   └── math_utils.py               # 纯数学计算（距离、角度、缩放）
 │
 ├── tools/                           # 工具模块（GUI / 调试）
 │   ├── template_captor.py          # 模板截取工具
