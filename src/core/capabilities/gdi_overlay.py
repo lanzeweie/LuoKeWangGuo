@@ -9,7 +9,7 @@ import win32ui
 import win32con
 import win32api
 from typing import List, Optional
-from src.core.detection import DetectionResult
+from src.core.capabilities.detection import DetectionResult
 from src.logger import get_logger
 
 # 颜色定义 (RGB 格式，GDI 使用 0x00BBGGRR 格式)

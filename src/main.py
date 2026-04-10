@@ -18,8 +18,8 @@ from src.core import (
     LayeredOverlay,
     StateMachine,
 )
-from src.core.target_scoring import TargetScorer
-from src.core.target_verifier import TargetVerifier
+from src.core.capabilities.target_scoring import TargetScorer
+from src.core.capabilities.target_verifier import TargetVerifier
 from src.logger import get_logger
 
 

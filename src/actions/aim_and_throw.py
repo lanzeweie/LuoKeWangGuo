@@ -14,8 +14,8 @@ import random
 import time
 from typing import Optional
 
-from src.core.target_scoring import TargetScore
-from src.core.sendinput_sim import SendInputSimulator
+from src.core.capabilities.target_scoring import TargetScore
+from src.core.capabilities.sendinput_sim import SendInputSimulator
 from src.logger import get_logger
 
 
@@ -212,7 +212,7 @@ class _MockSendInput:
 
 def _make_target(cx: int, cy: int) -> TargetScore:
     """Helper to construct a minimal TargetScore for tests."""
-    from src.core.detection import DetectionResult
+    from src.core.capabilities.detection import DetectionResult
 
     det = DetectionResult(
         x1=cx - 20,

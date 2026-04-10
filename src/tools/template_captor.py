@@ -51,8 +51,8 @@ import numpy as np
 from PIL import Image
 import dxcam
 
-from src.core.window_mgr import WindowManager
-from src.tools.relative_coordinate_picker import (
+from src.core.capabilities.window_mgr import WindowManager
+from src.components.coordinate_picker import (
     RelativeCoordinatePicker,
     PickerMode,
     PointCoords,

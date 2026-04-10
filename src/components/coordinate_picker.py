@@ -13,7 +13,7 @@
 - 可复用、可组合
 
 用法:
-    from src.tools.relative_coordinate_picker import (
+    from src.components.coordinate_picker import (
         RelativeCoordinatePicker, PickerMode
     )
 

@@ -1,43 +1,38 @@
 #!/usr/bin/env python3
-"""
-核心业务模块包
+"""能力层 - 底层工具库
+
+提供基础能力：屏幕捕获、检测、窗口管理、输入模拟、覆盖层、模式检测、目标评分等。
 """
 
-from .window_mgr import WindowManager
-from .screen_cap import ScreenCapture
-from .detection import ObjectDetector, DetectionResult
-from .input_sim import InputSimulator
+from .capabilities.screen_cap import ScreenCapture
+from .capabilities.detection import ObjectDetector
+from .capabilities.window_mgr import WindowManager
+from .capabilities.sendinput_sim import SendInputSimulator
+from .capabilities.input_sim import InputSimulator
+from .capabilities.layered_overlay import LayeredOverlay
+from .capabilities.gdi_overlay import GDIOverlay
+from .capabilities.capture_mode_detector import CaptureModeDetector
+from .capabilities.battle_mode_detector import BattleModeDetector
+from .capabilities.target_scoring import TargetScorer, TargetScore
+from .capabilities.target_verifier import TargetVerifier
+from .capabilities.template_loader import TemplateLoader
+from .state_machine import StateMachine
 from .game_logic import GameLogic
-from .state_machine import StateMachine, State
-from .gdi_overlay import GDIOverlay
-from .layered_overlay import LayeredOverlay
-from .target_scoring import TargetScorer, TargetScore
-from .target_verifier import TargetVerifier
-from .sendinput_sim import SendInputSimulator
-from .capture_mode_detector import CaptureModeDetector
-from .battle_mode_detector import BattleModeDetector
-from .move_controller import MoveController
-from .aim_and_throw import AimAndThrow
-from .battle_exit import BattleExit
 
 __all__ = [
-    "WindowManager",
     "ScreenCapture",
     "ObjectDetector",
-    "DetectionResult",
-    "InputSimulator",
+    "WindowManager",
     "SendInputSimulator",
-    "GameLogic",
-    "StateMachine",
-    "State",
-    "GDIOverlay",
+    "InputSimulator",
     "LayeredOverlay",
+    "GDIOverlay",
+    "CaptureModeDetector",
+    "BattleModeDetector",
     "TargetScorer",
     "TargetScore",
     "TargetVerifier",
-    "CaptureModeDetector",
-    "BattleModeDetector",
-    "MoveController",
-    "AimAndThrow",
-    "BattleExit",
+    "TemplateLoader",
+    "StateMachine",
+    "GameLogic",
 ]

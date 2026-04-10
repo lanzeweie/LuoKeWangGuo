@@ -18,8 +18,8 @@ from typing import Callable, Optional, Tuple
 import cv2
 import numpy as np
 
-from src.core.battle_mode_detector import BattleModeDetector
-from src.core.sendinput_sim import SendInputSimulator
+from src.core.capabilities.battle_mode_detector import BattleModeDetector
+from src.core.capabilities.sendinput_sim import SendInputSimulator
 from src.logger import get_logger
 
 # ── 配置常量 ──────────────────────────────────────────────────────────

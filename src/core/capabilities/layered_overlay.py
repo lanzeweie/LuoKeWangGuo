@@ -11,8 +11,8 @@ import win32gui
 import win32con
 import numpy as np
 from typing import List, Optional
-from src.core.detection import DetectionResult
-from src.core.target_scoring import TargetScore
+from src.core.capabilities.detection import DetectionResult
+from src.core.capabilities.target_scoring import TargetScore
 from src.logger import get_logger
 
 # ── Windows 常量 ──

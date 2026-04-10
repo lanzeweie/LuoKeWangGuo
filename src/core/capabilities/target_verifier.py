@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
-from src.core.detection import DetectionResult
-from src.core.target_scoring import TargetScore, TargetScorer
+from src.core.capabilities.detection import DetectionResult
+from src.core.capabilities.target_scoring import TargetScore, TargetScorer
 from src.logger import get_logger
 
 

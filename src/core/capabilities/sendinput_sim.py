@@ -533,7 +533,7 @@ def test_real_input():
     import sys
 
     try:
-        from src.core.window_mgr import WindowManager
+        from src.core.capabilities.window_mgr import WindowManager
 
         print("\n" + "=" * 50)
         print("REAL INPUT TEST — Be prepared to switch windows!")

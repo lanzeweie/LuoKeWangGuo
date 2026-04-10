@@ -3,7 +3,7 @@
 模板加载器 — 供其他模块直接使用已保存的模板配置
 
 用法:
-    from src.tools.template_loader import TemplateLoader
+    from src.core.capabilities.template_loader import TemplateLoader
 
     loader = TemplateLoader()
     config = loader.load()

@@ -7,9 +7,9 @@
 import time
 from enum import Enum
 from typing import Optional, List
-from src.core.detection import DetectionResult
-from src.core.target_scoring import TargetScore
-from src.core.target_verifier import TargetVerifier
+from src.core.capabilities.detection import DetectionResult
+from src.core.capabilities.target_scoring import TargetScore
+from src.core.capabilities.target_verifier import TargetVerifier
 from src.logger import get_logger
 
 
@@ -278,8 +278,8 @@ def test_state_machine():
     logger.info("状态机模块测试")
     logger.info("=" * 50)
 
-    from src.core.detection import DetectionResult
-    from src.core.target_scoring import TargetScore
+    from src.core.capabilities.detection import DetectionResult
+    from src.core.capabilities.target_scoring import TargetScore
 
     # 测试1: 初始化
     logger.info("\n[测试1] 初始化状态机...")

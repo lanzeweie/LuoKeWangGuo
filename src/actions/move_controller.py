@@ -15,8 +15,8 @@ import random
 import time
 from typing import Optional, Tuple
 
-from src.core.sendinput_sim import SendInputSimulator
-from src.core.target_scoring import TargetScore
+from src.core.capabilities.sendinput_sim import SendInputSimulator
+from src.core.capabilities.target_scoring import TargetScore
 from src.logger import get_logger
 
 

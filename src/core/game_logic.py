@@ -6,7 +6,7 @@
 
 import math
 from typing import Optional, Tuple
-from src.core.detection import DetectionResult
+from src.core.capabilities.detection import DetectionResult
 from src.logger import get_logger
 
 
@@ -202,7 +202,7 @@ def test_game_logic():
     logger.info("游戏逻辑模块测试")
     logger.info("=" * 50)
 
-    from src.core.detection import DetectionResult
+    from src.core.capabilities.detection import DetectionResult
 
     # 测试1: 初始化
     logger.info("\n[测试1] 初始化游戏逻辑...")

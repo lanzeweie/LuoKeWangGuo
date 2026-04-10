@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from src.core.capture_mode_detector import ROI_X, ROI_Y, ROI_W, ROI_H
+from src.core.capabilities.capture_mode_detector import ROI_X, ROI_Y, ROI_W, ROI_H
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
