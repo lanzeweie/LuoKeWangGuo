@@ -27,11 +27,14 @@ src/
 │       ├── input_sim.py            # 输入模拟
 │       ├── target_scoring.py       # 目标评分
 │       ├── target_verifier.py      # 目标验证（多周期确认）
-│       ├── capture_mode_detector.py # CV: 精灵球界面识别
-│       ├── battle_mode_detector.py  # CV: 战斗界面识别
 │       ├── layered_overlay.py      # DWM 透明覆盖层
 │       ├── gdi_overlay.py          # GDI 覆盖层（备用）
 │       └── template_loader.py      # 模板配置加载
+│
+├── detectors/                       # CV 模板检测器（OpenCV）
+│   ├── capture_mode_detector.py    # 精灵球捕捉界面检测
+│   ├── battle_mode_detector.py     # 战斗界面检测
+│   └── battle_exit_confirm_detector.py  # 战斗逃跑确认框检测
 │
 ├── actions/                         # 行动层 — 高级动作组合
 │   ├── move_controller.py          # WASD 移动执行
@@ -49,7 +52,8 @@ src/
 │
 ├── tools/                           # 工具模块（GUI / 调试）
 │   ├── template_captor.py          # 模板截取工具
-│   └── annotate_roi.py             # ROI 标注工具
+│   ├── annotate_roi.py             # ROI 标注工具
+│   └── diagnose_window.py          # 窗口诊断工具
 │
 └── components/                      # UI 组件层
     └── coordinate_picker.py        # 相对坐标选择器 GUI
@@ -61,7 +65,8 @@ src/
 |----|------|------|
 | **策略层** `strategies/` | 业务决策 —"怎么做" | WASD 走哪边、鼠标怎么瞄、屏幕怎么扫 |
 | **行动层** `actions/` | 高级动作 —"执行什么" | WASD 移动、瞄准投掷、ESC 退出 |
-| **能力层** `core/capabilities/` | 底层能力 —"能做什么" | 检测、截屏、CV 识别、目标评分 |
+| **检测器层** `detectors/` | CV 模板检测 | 精灵球界面、战斗界面、确认框检测 |
+| **能力层** `core/capabilities/` | 底层能力 —"能做什么" | YOLO 检测、截屏、输入模拟、目标评分 |
 | **工具层** `utils/` | 纯函数 — 数学计算 | 距离、角度、面积 |
 | **主入口** `main.py` | 组装 + 循环 + 渲染 | 创建 AppContext，驱动主循环 |
 
