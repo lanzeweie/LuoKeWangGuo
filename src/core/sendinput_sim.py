@@ -100,13 +100,23 @@ class INPUT(ctypes.Structure):
     ]
 
 
-def _make_keyboard_input(vk: int, key_up: bool = False) -> INPUT:
-    """Create an INPUT structure for a keyboard event."""
+def _make_keyboard_input(vk: int, scan_code: int = 0, key_up: bool = False) -> INPUT:
+    """Create an INPUT structure for a keyboard event.
+
+    Args:
+        vk: Virtual-key code
+        scan_code: Hardware scan code (from MapVirtualKeyW). Games may require this.
+        key_up: Whether this is a key-up event.
+    """
     inp = INPUT()
     inp.type = INPUT_KEYBOARD
     flags = KEYBD_EVENTF_KEYUP if key_up else 0
-    inp.union.ki.wVk = vk
-    inp.union.ki.wScan = 0
+    # If scan_code is provided, use KEYBDINPUT_SCANCODE flag so the game sees
+    # a hardware-like event rather than a virtual-key event.
+    if scan_code:
+        flags |= 0x0008  # KEYEVENTF_SCANCODE
+    inp.union.ki.wVk = vk if not scan_code else 0
+    inp.union.ki.wScan = scan_code if scan_code else vk
     inp.union.ki.dwFlags = flags
     inp.union.ki.time = 0
     inp.union.ki.dwExtraInfo = None
@@ -121,6 +131,23 @@ def _make_mouse_move_input(abs_x: int, abs_y: int) -> INPUT:
     inp.union.mi.dy = abs_y
     inp.union.mi.mouseData = 0
     inp.union.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE
+    inp.union.mi.time = 0
+    inp.union.mi.dwExtraInfo = None
+    return inp
+
+
+def _make_mouse_move_relative(dx: int, dy: int) -> INPUT:
+    """Create an INPUT structure for **relative** mouse move.
+
+    DX games typically expect relative delta movements, not absolute positions.
+    Currently unused — `mouse_move()` uses absolute mode. Keep for future use.
+    """
+    inp = INPUT()
+    inp.type = INPUT_MOUSE
+    inp.union.mi.dx = dx
+    inp.union.mi.dy = dy
+    inp.union.mi.mouseData = 0
+    inp.union.mi.dwFlags = MOUSEEVENTF_MOVE  # No ABSOLUTE flag → relative mode
     inp.union.mi.time = 0
     inp.union.mi.dwExtraInfo = None
     return inp
@@ -219,25 +246,33 @@ class SendInputSimulator:
         if vk is None:
             raise ValueError(f"未知按键: {key!r}，支持的按键: {sorted(VK_MAP.keys())}")
 
+        # 填充 scan code — 游戏可能只认 scan code 不认 vk
+        scan_code = ctypes.windll.user32.MapVirtualKeyW(vk, 0)
+
         self._random_delay()
 
         # Key down
-        down = _make_keyboard_input(vk, key_up=False)
+        down = _make_keyboard_input(vk, scan_code, key_up=False)
         n = _send_inputs([down])
         if self.debug:
-            self.logger.debug_msg(f"KeyDown: {key_lower} (vk=0x{vk:02X})")
+            self.logger.debug_msg(f"Keyboard: KEYDOWN '{key_lower}' (vk=0x{vk:02X}, sc=0x{scan_code:02X}) Sent={n}/1")
 
         if duration > 0:
             time.sleep(duration)
 
         # Key up
-        up = _make_keyboard_input(vk, key_up=True)
+        up = _make_keyboard_input(vk, scan_code, key_up=True)
         n2 = _send_inputs([up])
         if self.debug:
-            self.logger.debug_msg(f"KeyUp: {key_lower}")
+            self.logger.debug_msg(f"Keyboard: KEYUP   '{key_lower}'                              Sent={n2}/1")
 
         self._random_delay()
-        return n + n2
+        result = n + n2
+        if n != 1:
+            self.logger.warning(f"SendInput KEYDOWN only returned {n}/1")
+        if n2 != 1:
+            self.logger.warning(f"SendInput KEYUP only returned {n2}/1")
+        return result
 
     def key_down(self, key: str) -> int:
         """仅按下（不松开），用于需要按住一段时间的场景。
@@ -250,11 +285,12 @@ class SendInputSimulator:
         if vk is None:
             raise ValueError(f"未知按键: {key!r}")
 
+        scan_code = ctypes.windll.user32.MapVirtualKeyW(vk, 0)
         self._random_delay()
-        down = _make_keyboard_input(vk, key_up=False)
+        down = _make_keyboard_input(vk, scan_code, key_up=False)
         n = _send_inputs([down])
         if self.debug:
-            self.logger.debug_msg(f"KeyDown(hold): {key_lower}")
+            self.logger.debug_msg(f"KeyDown(hold): {key_lower} (sc=0x{scan_code:02X})")
         return n
 
     def key_up(self, key: str) -> int:
@@ -268,8 +304,9 @@ class SendInputSimulator:
         if vk is None:
             raise ValueError(f"未知按键: {key!r}")
 
+        scan_code = ctypes.windll.user32.MapVirtualKeyW(vk, 0)
         self._random_delay()
-        up = _make_keyboard_input(vk, key_up=True)
+        up = _make_keyboard_input(vk, scan_code, key_up=True)
         n = _send_inputs([up])
         if self.debug:
             self.logger.debug_msg(f"KeyUp: {key_lower}")
@@ -278,72 +315,38 @@ class SendInputSimulator:
     # ── mouse movement ──────────────────────────────────────────────
 
     def mouse_move(self, rel_x: int, rel_y: int) -> int:
-        """鼠标相对移动（客户区相对坐标），分段轨迹 + 随机抖动。
+        """鼠标移动到客户区相对坐标。
 
-        分成 3-5 段，每段之间加 80-150ms 随机延迟，每段加 +-3-8px 随机抖动。
+        将客户区坐标转换为屏幕绝对坐标后，使用 SendInput 的
+        MOUSEEVENTF_ABSOLUTE 模式精确定位。
 
         Args:
-            rel_x: 客户区 X 方向相对偏移
-            rel_y: 客户区 Y 方向相对偏移
+            rel_x: 客户区 X 坐标（像素）
+            rel_y: 客户区 Y 坐标（像素）
 
         Returns:
             成功发送的事件总数
         """
-        # 分段
-        num_segments = random.randint(3, 5)
-        seg_x = rel_x / num_segments
-        seg_y = rel_y / num_segments
+        self._random_delay()
 
-        # 获取客户区左上角屏幕坐标
-        region = self._wm.get_region()
-        if region is None:
-            raise RuntimeError("无法获取窗口客户区坐标")
-        client_left, client_top = region[0], region[1]
+        # 客户区相对坐标 → 屏幕绝对坐标
+        abs_x, abs_y = self._client_to_screen(rel_x, rel_y)
 
-        screen_w, screen_h = self._get_screen_size()
+        # 归一化到 0-65535
+        sw, sh = self._get_screen_size()
+        nx = _normalize_coord(abs_x, sw)
+        ny = _normalize_coord(abs_y, sh)
 
-        total_sent = 0
+        inp = _make_mouse_move_input(nx, ny)
+        n = _send_inputs([inp])
 
-        for i in range(num_segments):
-            self._random_delay()
-
-            # 累积到当前段末端的客户区相对坐标
-            cum_x = seg_x * (i + 1)
-            cum_y = seg_y * (i + 1)
-
-            # 随机抖动（±3-8px），最后一段不加抖动（确保精确到达目标）
-            if i < num_segments - 1:
-                jitter_x = random.randint(-8, 8)
-                jitter_y = random.randint(-8, 8)
-                # 保证最小抖动 ±3
-                if abs(jitter_x) < 3:
-                    jitter_x = 3 if jitter_x >= 0 else -3
-                if abs(jitter_y) < 3:
-                    jitter_y = 3 if jitter_y >= 0 else -3
-            else:
-                jitter_x = 0
-                jitter_y = 0
-
-            # 屏幕绝对坐标
-            abs_x = int(client_left + cum_x + jitter_x)
-            abs_y = int(client_top + cum_y + jitter_y)
-
-            nx = _normalize_coord(abs_x, screen_w)
-            ny = _normalize_coord(abs_y, screen_h)
-
-            inp = _make_mouse_move_input(nx, ny)
-            n = _send_inputs([inp])
-            total_sent += n
-
-            if self.debug:
-                self.logger.debug_msg(
-                    f"MouseMove segment {i + 1}/{num_segments}: "
-                    f"rel=({cum_x:.0f},{cum_y:.0f}) jitter=({jitter_x},{jitter_y}) "
-                    f"abs=({abs_x},{abs_y}) norm=({nx},{ny})"
-                )
+        self.logger.debug_msg(
+            f"Mouse:   MOVE(abs): client({rel_x},{rel_y}) -> "
+            f"screen({abs_x},{abs_y}) -> normalized({nx},{ny}) Sent={n}/1"
+        )
 
         self._random_delay()
-        return total_sent
+        return n
 
     # ── mouse buttons ───────────────────────────────────────────────
 
@@ -356,8 +359,7 @@ class SendInputSimulator:
         self._random_delay()
         inp = _make_mouse_button_input(MOUSEEVENTF_LEFTDOWN)
         n = _send_inputs([inp])
-        if self.debug:
-            self.logger.debug_msg("MouseLeftDown")
+        self.logger.debug_msg(f"Mouse:   DOWN     Sent={n}/1")
         return n
 
     def mouse_up(self) -> int:
@@ -369,8 +371,7 @@ class SendInputSimulator:
         self._random_delay()
         inp = _make_mouse_button_input(MOUSEEVENTF_LEFTUP)
         n = _send_inputs([inp])
-        if self.debug:
-            self.logger.debug_msg("MouseLeftUp")
+        self.logger.debug_msg(f"Mouse:   UP       Sent={n}/1")
         return n
 
     def mouse_click(self) -> int:
@@ -383,8 +384,7 @@ class SendInputSimulator:
         down = _make_mouse_button_input(MOUSEEVENTF_LEFTDOWN)
         up = _make_mouse_button_input(MOUSEEVENTF_LEFTUP)
         n = _send_inputs([down, up])
-        if self.debug:
-            self.logger.debug_msg("MouseClick")
+        self.logger.debug_msg(f"Mouse:   CLICK    Sent={n}/2")
         self._random_delay()
         return n
 
@@ -433,13 +433,18 @@ def test_sendinput_simulator() -> bool:
 
     # ── Test 2: Keyboard INPUT creation ─────────────────────────────
     print("\n[Test 2] Keyboard INPUT creation...")
-    inp = _make_keyboard_input(0x57, key_up=False)  # 'W'
+    inp = _make_keyboard_input(0x57, scan_code=0x11, key_up=False)  # 'W'
     check("type == INPUT_KEYBOARD", inp.type == INPUT_KEYBOARD)
-    check("wVk == 0x57", inp.union.ki.wVk == 0x57)
-    check("dwFlags == 0 (key down)", inp.union.ki.dwFlags == 0)
+    check("wScan == 0x11", inp.union.ki.wScan == 0x11)
+    check("dwFlags == SCANCODE (0x0008)", inp.union.ki.dwFlags == 0x0008)
 
-    inp_up = _make_keyboard_input(0x57, key_up=True)
-    check("dwFlags == KEYUP (0x0002)", inp_up.union.ki.dwFlags == KEYBD_EVENTF_KEYUP)
+    inp_up = _make_keyboard_input(0x57, scan_code=0x11, key_up=True)
+    check("dwFlags == SCANCODE|KEYUP (0x000A)", inp_up.union.ki.dwFlags == 0x000A)
+
+    # No scan code fallback (legacy vk-only mode)
+    inp_vk = _make_keyboard_input(0x57, scan_code=0, key_up=False)
+    check("vk-only: wVk == 0x57", inp_vk.union.ki.wVk == 0x57)
+    check("vk-only: dwFlags == 0", inp_vk.union.ki.dwFlags == 0)
 
     # ── Test 3: Mouse INPUT creation ────────────────────────────────
     print("\n[Test 3] Mouse INPUT creation...")
@@ -475,24 +480,32 @@ def test_sendinput_simulator() -> bool:
     sx, sy = sim._client_to_screen(50, 60)
     check("client (50,60) -> screen (150,260)", sx == 150 and sy == 260)
 
+    # ── Test 5b: Relative mouse move INPUT creation ─────────────────
+    print("\n[Test 5b] Relative mouse move INPUT...")
+    rel_inp = _make_mouse_move_relative(10, -5)
+    check("type == INPUT_MOUSE", rel_inp.type == INPUT_MOUSE)
+    check("dx == 10", rel_inp.union.mi.dx == 10)
+    check("dy == -5", rel_inp.union.mi.dy == -5)
+    check("dwFlags == MOVE only (no ABSOLUTE)",
+          rel_inp.union.mi.dwFlags == MOUSEEVENTF_MOVE)
+    check("not absolute",
+          (rel_inp.union.mi.dwFlags & MOUSEEVENTF_ABSOLUTE) == 0)
+
     # ── Test 6: VK_MAP coverage ─────────────────────────────────────
     print("\n[Test 6] VK_MAP coverage...")
     required_keys = ['w', 'a', 's', 'd', 'e', 'esc', 'escape', 'space', 'enter']
     for k in required_keys:
         check(f"VK_MAP['{k}'] defined", k in VK_MAP and VK_MAP[k] > 0)
 
-    # ── Test 7: mouse_move segment calculation (no actual send) ─────
-    print("\n[Test 7] Mouse move segment planning...")
-    # Verify the algorithm would produce correct cumulative positions
+    # ── Test 7: mouse_move segment calculation (relative mode) ──────
+    print("\n[Test 7] Mouse move segment planning (relative mode)...")
+    # Verify the relative move INPUT produces correct delta values
     rel_x, rel_y = 100, 50
-    num_segments = 4
-    seg_x = rel_x / num_segments
-    seg_y = rel_y / num_segments
-    # After all 4 segments, cumulative should equal the target
-    cum_x_final = seg_x * num_segments
-    cum_y_final = seg_y * num_segments
-    check(f"cumulative after {num_segments} segments == target",
-          abs(cum_x_final - rel_x) < 0.01 and abs(cum_y_final - rel_y) < 0.01)
+    rel_inp = _make_mouse_move_relative(rel_x, rel_y)
+    check("relative dx == 100", rel_inp.union.mi.dx == 100)
+    check("relative dy == 50", rel_inp.union.mi.dy == 50)
+    check("relative mode: no ABSOLUTE flag",
+          (rel_inp.union.mi.dwFlags & MOUSEEVENTF_ABSOLUTE) == 0)
 
     # ── Summary ─────────────────────────────────────────────────────
     print(f"\n{'=' * 50}")
@@ -507,3 +520,62 @@ def test_sendinput_simulator() -> bool:
 
 if __name__ == "__main__":
     test_sendinput_simulator()
+
+
+# ── Quick input verification ───────────────────────────────────────────
+
+def test_real_input():
+    """Quick test to verify real input is being sent.
+
+    IMPORTANT: This will actually send keyboard/mouse events!
+    Make sure your game window is ready and you can stop quickly if needed.
+    """
+    import sys
+
+    try:
+        from src.core.window_mgr import WindowManager
+
+        print("\n" + "=" * 50)
+        print("REAL INPUT TEST — Be prepared to switch windows!")
+        print("=" * 50 + "\n")
+
+        # Create simulator with debug mode enabled
+        wm = WindowManager(process_name="NRC-Win64-Shipping.exe", debug=True)
+        sim = SendInputSimulator(wm, debug=True)
+
+        # Wait a moment for user to prepare
+        print("Preparing... in 3 seconds, will send 'w' key then 'a' key.\n")
+        time.sleep(3)
+
+        # Test keyboard
+        print("Test 1: Pressing 'w' for 0.3s...")
+        result = sim.press_key('w', duration=0.3)
+        print(f"→ Result: {result} events sent\n")
+
+        time.sleep(0.5)
+
+        print("Test 2: Pressing 'a' for 0.3s...")
+        result = sim.press_key('a', duration=0.3)
+        print(f"→ Result: {result} events sent\n")
+
+        time.sleep(0.5)
+
+        print("Test 3: Testing mouse move (client offset 100,100 → 150,150)...")
+        result = sim.mouse_move(50, 50)
+        print(f"→ Result: {result} events sent\n")
+
+        print("✓ Real input test completed!")
+        print("=" * 50 + "\n")
+
+    except Exception as e:
+        print(f"\n✗ Error during real input test: {e}\n")
+        import traceback
+        traceback.print_exc()
+
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "--real-test":
+        test_real_input()
+    else:
+        test_sendinput_simulator()

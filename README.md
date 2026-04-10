@@ -67,8 +67,19 @@ uv run yolo predict model=models/trained/luoke_pet.pt source="data/images/PixPin
 
 ### 4. 运行主程序
 
+> **重要：必须以管理员身份运行终端**，否则 SendInput 键鼠操作会被 Windows UAC 拦截，游戏无任何反应。
+
 ```bash
+# 以管理员身份打开 PowerShell/终端，然后执行：
 uv run python -m src.main --model models/trained/luoke_pet.pt --target-class 0
+```
+
+### 键鼠操作测试
+
+验证 SendInput 是否能正常发送（同样需要管理员权限）：
+
+```bash
+uv run python -m src.core.sendinput_sim --real-test
 ```
 
 ## 命令行参数
@@ -118,3 +129,7 @@ SEARCH → MOVE_TO_TARGET → THROW → WAIT → COOLDOWN → (回到 SEARCH)
 - 仅使用外部视觉方案
 - 输入模拟加入随机延迟
 - 无内存操作
+
+### 运行权限要求
+
+- **必须以管理员身份运行终端** — Windows UAC 完整性机制会阻止非管理员进程向高权限进程发送 SendInput 事件

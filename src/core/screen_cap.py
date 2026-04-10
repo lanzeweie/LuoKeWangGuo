@@ -147,6 +147,20 @@ class ScreenCapture:
         self.stop()
 
 
+class ScreenCaptureWithRegion(ScreenCapture):
+    """带 region 参数的 ScreenCapture 包装类，用于 with 语句支持 region 参数。"""
+
+    def __init__(self, fps: int = 60, debug: bool = False, region: Optional[Tuple[int, int, int, int]] = None):
+        super().__init__(fps=fps, debug=debug)
+        self._region = region
+
+    def __enter__(self):
+        if self.start(region=self._region):
+            return self
+        else:
+            return None
+
+
 def test_screen_capture():
     """测试屏幕捕获"""
     logger = get_logger(debug=True)

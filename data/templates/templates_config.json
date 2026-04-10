@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-10 13:32:16",
+  "generated_at": "2026-04-10 16:00:17",
   "templates": {
     "capture_mode": {
       "rel_x": 0.9414,
@@ -24,6 +24,29 @@
       "abs_w": 34,
       "abs_h": 21,
       "template_path": "data/templates\\battle_mode.png",
+      "window_w": 1280,
+      "window_h": 720
+    },
+    "battle_exit_confirm": {
+      "rel_x": 0.4781,
+      "rel_y": 0.3528,
+      "rel_w": 0.0445,
+      "rel_h": 0.0347,
+      "abs_x": 612,
+      "abs_y": 254,
+      "abs_w": 57,
+      "abs_h": 25,
+      "template_path": "data/templates\\battle_exit_confirm.png",
+      "window_w": 1280,
+      "window_h": 720
+    }
+  },
+  "click_points": {
+    "confirm_button": {
+      "rel_x": 0.5789,
+      "rel_y": 0.825,
+      "abs_x": 741,
+      "abs_y": 594,
       "window_w": 1280,
       "window_h": 720
     }
