@@ -116,7 +116,8 @@ class LayeredOverlay:
         self._screen_dc: Optional[int] = None
         self._bitmap: Optional[int] = None
         self._bits_ptr: Optional[int] = None  # 指向像素数据的指针
-        self._buffer: Optional[np.ndarray] = None  # numpy 视图 (H, W, 4) BGRA
+        self._buffer: Optional[np.ndarray] = None  # numpy 视图 (H, W, 4) BGRA，直接映射 DIB 内存
+        self._back_buffer: Optional[np.ndarray] = None  # 双缓冲：在此绘制，完成后一次性拷贝到 _buffer
 
     def create_window(self) -> bool:
         """创建分层窗口"""
@@ -182,6 +183,7 @@ class LayeredOverlay:
             # 创建 numpy 视图，方便操作像素
             buf = (ctypes.c_uint8 * (self.height * self.width * 4)).from_address(self._bits_ptr)
             self._buffer = np.ctypeslib.as_array(buf).reshape((self.height, self.width, 4))
+            self._back_buffer = np.zeros((self.height, self.width, 4), dtype=np.uint8)
 
             self.logger.success(
                 f"分层覆盖窗口已创建 ({self.x},{self.y},{self.width}x{self.height})"
@@ -198,12 +200,9 @@ class LayeredOverlay:
             return
 
         try:
-            buf = self._buffer
+            buf = self._back_buffer
             # 清屏 — 全部设为完全透明
-            buf[:, :, 0] = 0   # B
-            buf[:, :, 1] = 0   # G
-            buf[:, :, 2] = 0   # R
-            buf[:, :, 3] = 0   # A
+            buf[:] = 0
 
             for det in detections:
                 x1, y1, x2, y2 = det.x1, det.y1, det.x2, det.y2
@@ -234,7 +233,8 @@ class LayeredOverlay:
                     if 0 <= lx < self.width and y1 - 12 >= 0:
                         buf[y1 - 12:y1 - 6, lx:lx + 4] = [255, 255, 255, 255]
 
-            # ── 提交到分层窗口 ──
+            # ── 双缓冲提交：back_buffer → buffer（DIB 内存）→ UpdateLayeredWindow ──
+            np.copyto(self._buffer, self._back_buffer)
             blend = BLENDFUNCTION()
             blend.BlendOp = AC_SRC_OVER
             blend.BlendFlags = 0
@@ -287,12 +287,9 @@ class LayeredOverlay:
             return
 
         try:
-            buf = self._buffer
+            buf = self._back_buffer
             # 清屏
-            buf[:, :, 0] = 0
-            buf[:, :, 1] = 0
-            buf[:, :, 2] = 0
-            buf[:, :, 3] = 0
+            buf[:] = 0
 
             thickness = 3
 
@@ -362,6 +359,8 @@ class LayeredOverlay:
                         buf[10:10 + 6, lx:lx + 5] = [255, 255, 255, 255]
 
             # ── 提交 ──
+            # ── 双缓冲提交 ──
+            np.copyto(self._buffer, self._back_buffer)
             blend = BLENDFUNCTION()
             blend.BlendOp = AC_SRC_OVER
             blend.BlendFlags = 0
