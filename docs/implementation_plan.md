@@ -25,7 +25,6 @@ src/
 │       ├── screen_cap.py           # DX12 截屏
 │       ├── window_mgr.py           # 窗口管理
 │       ├── sendinput_sim.py        # SendInput 键鼠模拟
-│       ├── input_sim.py            # 输入模拟
 │       ├── target_scoring.py       # 目标评分
 │       ├── target_verifier.py      # 目标验证（多周期确认）
 │       ├── layered_overlay.py      # DWM 透明覆盖层

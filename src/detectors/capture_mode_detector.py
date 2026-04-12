@@ -16,6 +16,7 @@ from typing import Tuple
 import cv2
 import numpy as np
 
+from src.logger import get_logger
 from src.detectors.config_loader import load_roi_relative, rel_to_abs
 
 MATCH_THRESHOLD = 0.80
@@ -24,6 +25,10 @@ TIMEOUT_SECONDS = 3.0
 # 初始化时加载相对坐标（无 frame_size 时无法换算）
 _roi_rel = load_roi_relative("capture_mode")
 REL_ROI_X, REL_ROI_Y, REL_ROI_W, REL_ROI_H = _roi_rel
+
+# 模块级默认绝对坐标（仅测试函数使用，基于 1280x720 默认分辨率）
+ROI_X = int(REL_ROI_X * 1280)
+ROI_Y = int(REL_ROI_Y * 720)
 
 
 class CaptureModeDetector:

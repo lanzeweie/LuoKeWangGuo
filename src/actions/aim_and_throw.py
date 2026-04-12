@@ -15,17 +15,17 @@ import time
 from typing import Optional
 
 from src.core.capabilities.target_scoring import TargetScore
-from src.core.capabilities.sendinput_sim import SendInputSimulator
+from src.core.capabilities.interception_sim import InterceptionSimulator
 from src.logger import get_logger
 
 
 class AimAndThrow:
     """瞄准目标并执行精灵球投掷。"""
 
-    def __init__(self, send_input: SendInputSimulator, debug: bool = False) -> None:
+    def __init__(self, send_input: InterceptionSimulator, debug: bool = False) -> None:
         """
         Args:
-            send_input: SendInputSimulator 实例（已注入）
+            send_input: InterceptionSimulator 实例（已注入）
             debug: 是否启用调试日志
         """
         self._send_input = send_input
@@ -74,22 +74,17 @@ class AimAndThrow:
                 )
             return False
 
-        # 计算相对于屏幕中心的偏移
-        offset_x = cx - screen_width // 2
-        offset_y = cy - screen_height // 2
-
         if self.debug:
             self._log.debug_msg(
-                f"aim_and_throw: 目标 center=({cx},{cy}), "
-                f"offset=({offset_x},{offset_y})"
+                f"aim_and_throw: 目标 center=({cx},{cy})"
             )
 
-        # Step 1: 移动到目标中心
+        # Step 1: 移动到目标中心（使用客户区绝对坐标）
         try:
-            self._send_input.mouse_move(offset_x, offset_y)
+            self._send_input.mouse_move_to(cx, cy)
         except Exception as exc:
             if self.debug:
-                self._log.debug_msg(f"aim_and_throw: mouse_move 失败: {exc}")
+                self._log.debug_msg(f"aim_and_throw: mouse_move_to 失败: {exc}")
             return False
 
         # Step 2: 稳定等待 100-200ms
@@ -163,19 +158,16 @@ class AimAndThrow:
                 )
             return False
 
-        offset_x = cx - screen_width // 2
-        offset_y = cy - screen_height // 2
-
         if self.debug:
             self._log.debug_msg(
-                f"aim_only: 目标 center=({cx},{cy}), offset=({offset_x},{offset_y})"
+                f"aim_only: 目标 center=({cx},{cy})"
             )
 
         try:
-            self._send_input.mouse_move(offset_x, offset_y)
+            self._send_input.mouse_move_to(cx, cy)
         except Exception as exc:
             if self.debug:
-                self._log.debug_msg(f"aim_only: mouse_move 失败: {exc}")
+                self._log.debug_msg(f"aim_only: mouse_move_to 失败: {exc}")
             return False
 
         return True
@@ -199,6 +191,10 @@ class _MockSendInput:
 
     def mouse_move(self, rel_x: int, rel_y: int) -> int:
         self.calls.append(("mouse_move", (rel_x, rel_y)))
+        return 1
+
+    def mouse_move_to(self, abs_x: int, abs_y: int) -> int:
+        self.calls.append(("mouse_move_to", (abs_x, abs_y)))
         return 1
 
     def mouse_down(self) -> int:
@@ -245,26 +241,26 @@ def test_aim_and_throw() -> bool:
             failed += 1
             print(f"  [FAIL] {name}")
 
-    print("[Test 1] aim_only calls mouse_move with correct offset...")
+    print("[Test 1] aim_only calls mouse_move_to with correct coordinates...")
     mock = _MockSendInput()
     thrower = AimAndThrow(send_input=mock, debug=False)
     target = _make_target(cx=640, cy=360)  # center of 1280x720
     result = thrower.aim_only(target, screen_width=1280, screen_height=720)
     check("returns True", result is True)
-    check("calls mouse_move once", len([c for c in mock.calls if c[0] == "mouse_move"]) == 1)
-    check("offset is (0, 0) for center target",
-          mock.calls[0] == ("mouse_move", (0, 0)))
+    check("calls mouse_move_to once", len([c for c in mock.calls if c[0] == "mouse_move_to"]) == 1)
+    check("coordinates are (640, 360) for center target",
+          mock.calls[0] == ("mouse_move_to", (640, 360)))
 
     # Off-center target
     mock2 = _MockSendInput()
     thrower2 = AimAndThrow(send_input=mock2, debug=False)
-    target2 = _make_target(cx=740, cy=410)  # +100, +50 from center
+    target2 = _make_target(cx=740, cy=410)  # off-center position
     result2 = thrower2.aim_only(target2, screen_width=1280, screen_height=720)
     check("off-center returns True", result2 is True)
-    check("offset is (100, 50)",
-          mock2.calls[0] == ("mouse_move", (100, 50)))
+    check("coordinates are (740, 410)",
+          mock2.calls[0] == ("mouse_move_to", (740, 410)))
 
-    print("\n[Test 2] aim_and_throw call order: move -> down -> up...")
+    print("\n[Test 2] aim_and_throw call order: move_to -> down -> up...")
     mock3 = _MockSendInput()
     thrower3 = AimAndThrow(send_input=mock3, debug=False)
     target3 = _make_target(cx=640, cy=360)
@@ -275,15 +271,15 @@ def test_aim_and_throw() -> bool:
 
     # Extract non-micro-move calls (the main sequence)
     call_names = [c[0] for c in mock3.calls]
-    # First call should be mouse_move, last two should be mouse_down, mouse_up
+    # First call should be mouse_move_to, last two should be mouse_down, mouse_up
     # (micro-adjust mouse_move may appear between down and up)
-    check("first call is mouse_move", call_names[0] == "mouse_move")
+    check("first call is mouse_move_to", call_names[0] == "mouse_move_to")
     check("mouse_down present", "mouse_down" in call_names)
     check("mouse_up present", "mouse_up" in call_names)
     check("mouse_down before mouse_up",
           call_names.index("mouse_down") < call_names.index("mouse_up"))
-    check("mouse_move before mouse_down",
-          call_names.index("mouse_move") < call_names.index("mouse_down"))
+    check("mouse_move_to before mouse_down",
+          call_names.index("mouse_move_to") < call_names.index("mouse_down"))
 
     print("\n[Test 3] None target returns False...")
     mock4 = _MockSendInput()

@@ -63,7 +63,6 @@ LuokeWangGuo/
 │   │       ├── capture_mode_detector.py  # 精灵球界面检测
 │   │       ├── detection.py             # YOLO 推理
 │   │       ├── gdi_overlay.py           # GDI 覆盖层
-│   │       ├── input_sim.py             # 输入模拟
 │   │       ├── layered_overlay.py       # DWM 透明覆盖层
 │   │       ├── screen_cap.py            # DX12 截屏
 │   │       ├── sendinput_sim.py         # SendInput 键鼠模拟

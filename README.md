@@ -23,15 +23,16 @@ src/
 │       ├── detection.py            # YOLO 推理
 │       ├── screen_cap.py           # DX12 截屏
 │       ├── window_mgr.py           # 窗口管理
-│       ├── sendinput_sim.py        # SendInput 键鼠模拟（反检测）
-│       ├── input_sim.py            # 输入模拟
+│       ├── interception_sim.py     # Interception 驱动级输入（拟人化算法）
+│       ├── sendinput_sim.py        # SendInput 输入（Legacy，已弃用）
 │       ├── target_scoring.py       # 目标评分
 │       ├── target_verifier.py      # 目标验证（多周期确认）
 │       ├── layered_overlay.py      # DWM 透明覆盖层
 │       ├── gdi_overlay.py          # GDI 覆盖层（备用）
-│       └── template_loader.py      # 模板配置加载
+│       └── template_loader.py      # 模板配置加载（类封装）
 │
 ├── detectors/                       # CV 模板检测器（OpenCV）
+│   ├── config_loader.py            # 配置加载公共函数
 │   ├── capture_mode_detector.py    # 精灵球捕捉界面检测
 │   ├── battle_mode_detector.py     # 战斗界面检测
 │   └── battle_exit_confirm_detector.py  # 战斗逃跑确认框检测
@@ -50,13 +51,13 @@ src/
 ├── utils/                           # 工具函数 — 纯数学计算
 │   └── math_utils.py               # 距离、角度、面积
 │
-├── tools/                           # 工具模块（GUI / 调试）
-│   ├── template_captor.py          # 模板截取工具
-│   ├── annotate_roi.py             # ROI 标注工具
-│   └── diagnose_window.py          # 窗口诊断工具
+├── components/                      # UI 组件层
+│   └── coordinate_picker.py        # 相对坐标选择器 GUI
 │
-└── components/                      # UI 组件层
-    └── coordinate_picker.py        # 相对坐标选择器 GUI
+└── tools/                           # 工具模块（GUI / 调试）
+    ├── template_captor.py          # 模板截取工具
+    ├── annotate_roi.py             # ROI 标注工具
+    └── diagnose_window.py          # 窗口诊断工具
 ```
 
 ### 分层职责
@@ -98,7 +99,7 @@ SEARCH → VERIFY → NAVIGATE(可选) → AIM_AND_THROW → WAIT_RESULT
 | 语言 | Python 3.9+ |
 | 检测 | Ultralytics YOLOv8n |
 | 截屏 | dxcam (DirectX12) |
-| 输入 | Windows SendInput API |
+| 输入 | Interception 驱动（拟人化算法） |
 | CV | OpenCV 模板匹配 |
 | 包管理 | uv |
 | 平台 | Windows 10/11 |
@@ -108,12 +109,22 @@ SEARCH → VERIFY → NAVIGATE(可选) → AIM_AND_THROW → WAIT_RESULT
 ### 1. 安装依赖
 
 ```bash
+# 安装 Python 依赖
 uv sync
+
+# 安装 Interception 驱动（需要管理员权限）
+pip install interception
 ```
+
+**Interception 驱动安装说明**：
+- 首次使用需要安装 Interception 驱动程序
+- 驱动提供驱动级键鼠注入，反检测能力强于 SendInput
+- 安装后需要重启系统
+- 详见：https://github.com/oblitum/Interception
 
 ### 2. 运行主程序
 
-> **必须以管理员身份运行终端**，否则 SendInput 操作会被 UAC 拦截。
+> **必须以管理员身份运行终端**，否则 Interception 驱动无法正常工作。
 
 ```bash
 uv run python -m src.main --model models/trained/luoke_pet.pt
@@ -132,7 +143,13 @@ uv run python -m src.tools.diagnose_window
 uv run python -m src.tools.template_captor --capture
 uv run python -m src.tools.template_captor --battle
 
-# SendInput 测试
+# Interception 单元测试（算法测试）
+uv run python tests/test_interception_sim.py
+
+# 一键式输入测试（自动测试鼠标+键盘）
+uv run python -m src.tools.test_input_auto
+
+# SendInput 测试（Legacy）
 uv run python -m src.core.capabilities.sendinput_sim --real-test
 ```
 
@@ -147,7 +164,7 @@ uv run python -m src.core.capabilities.sendinput_sim --real-test
 
 1. **纯视觉方案** — 不注入游戏内存，反作弊优先
 2. **客户区坐标** — 所有操作坐标相对于窗口客户区
-3. **SendInput 反检测** — 分段轨迹 + 随机抖动 + 80-150ms 随机延迟
+3. **Interception 拟人化输入** — 驱动级注入 + 贝塞尔曲线轨迹 + Fitts's Law 变速 + 微颤模拟 + 过冲修复 + 高斯分布随机延迟
 4. **暴力捕捉** — 不判断捕捉成功/失败，精灵消失即结束
 5. **禁止硬编码坐标** — 所有坐标通过 `RelativeCoordinatePicker` 获取，存为相对坐标
 

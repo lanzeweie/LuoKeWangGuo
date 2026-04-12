@@ -56,7 +56,7 @@ class NavigationStrategy(BaseStrategy):
         """
         # 检查是否有已验证的目标
         if not ctx.verified_target:
-            ctx.logger.debug("没有已验证的目标，停止导航")
+            ctx.logger.debug_msg("没有已验证的目标，停止导航")
             self._reset_navigation_state()
             return Action.NO_OP
 
@@ -77,13 +77,13 @@ class NavigationStrategy(BaseStrategy):
         screen_center = ctx.screen_center
         dist = distance(screen_center, target_center)
 
-        ctx.logger.debug(
+        ctx.logger.debug_msg(
             f"导航: 目标偏移=({offset_x}, {offset_y}), 距离={dist:.1f}px"
         )
 
         # 如果目标在中心容差范围内，停止移动
         if dist <= self.center_tolerance:
-            ctx.logger.debug(f"目标在中心范围内（{dist:.1f}px <= {self.center_tolerance}px），停止导航")
+            ctx.logger.debug_msg(f"目标在中心范围内（{dist:.1f}px <= {self.center_tolerance}px），停止导航")
             self._reset_navigation_state()
             return Action.NO_OP
 
@@ -146,7 +146,7 @@ class NavigationStrategy(BaseStrategy):
             # 近距离：精细调整
             duration = 0.3
 
-        ctx.logger.debug(
+        ctx.logger.debug_msg(
             f"移动参数: 方向={direction}, 时长={duration}s, 距离={dist:.1f}px"
         )
 

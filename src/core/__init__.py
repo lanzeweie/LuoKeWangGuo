@@ -14,8 +14,8 @@
 from .capabilities.screen_cap import ScreenCapture
 from .capabilities.detection import ObjectDetector
 from .capabilities.window_mgr import WindowManager
-from .capabilities.sendinput_sim import SendInputSimulator
-from .capabilities.input_sim import InputSimulator
+from .capabilities.interception_sim import InterceptionSimulator
+from .capabilities.sendinput_sim import SendInputSimulator  # Legacy
 from .capabilities.layered_overlay import LayeredOverlay
 from .capabilities.gdi_overlay import GDIOverlay
 from .capabilities.target_scoring import TargetScorer, TargetScore
@@ -33,8 +33,8 @@ __all__ = [
     "ScreenCapture",
     "ObjectDetector",
     "WindowManager",
-    "SendInputSimulator",
-    "InputSimulator",
+    "InterceptionSimulator",
+    "SendInputSimulator",  # Legacy
     "LayeredOverlay",
     "GDIOverlay",
     "CaptureModeDetector",

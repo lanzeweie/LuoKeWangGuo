@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-SendInput 输入模拟模块
+SendInput 输入模拟模块（LEGACY - 已弃用）
+
+此模块已被 interception_sim.py 替代，仅保留用于向后兼容。
+新代码请使用 InterceptionSimulator，它提供更强的反检测能力和拟人化算法。
 
 使用 Windows SendInput API 替代 pynput，满足反作弊要求。
 - 键盘: KEYBD_EVENTF_KEYDOWN / KEYBD_EVENTF_KEYUP
@@ -29,6 +32,8 @@ MOUSEEVENTF_MOVE = 0x0001
 MOUSEEVENTF_ABSOLUTE = 0x8000
 MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP = 0x0004
+MOUSEEVENTF_RIGHTDOWN = 0x0008
+MOUSEEVENTF_RIGHTUP = 0x0010
 
 # Virtual-key codes (subset)
 VK_MAP = {
@@ -203,6 +208,12 @@ class SendInputSimulator:
             window_mgr: WindowManager 实例，用于获取客户区坐标偏移
             debug: 是否启用调试日志
         """
+        import warnings
+        warnings.warn(
+            "SendInputSimulator 已弃用，请使用 InterceptionSimulator 获得更强的反检测能力",
+            DeprecationWarning,
+            stacklevel=2
+        )
         self._wm = window_mgr
         self.debug = debug
         self.logger = get_logger(debug=debug)
@@ -317,8 +328,32 @@ class SendInputSimulator:
     def mouse_move(self, rel_x: int, rel_y: int) -> int:
         """鼠标移动到客户区相对坐标。
 
-        将客户区坐标转换为屏幕绝对坐标后，使用 SendInput 的
-        MOUSEEVENTF_ABSOLUTE 模式精确定位。
+        使用相对移动模式（MOUSEEVENTF_MOVE only），
+        适用于游戏内视角移动。
+
+        Args:
+            rel_x: 目标 X（相对于当前鼠标位置的变化量）
+            rel_y: 目标 Y（相对于当前鼠标位置的变化量）
+
+        Returns:
+            成功发送的事件总数
+        """
+        self._random_delay()
+
+        # 相对移动：目标坐标是相对于当前位置的偏移量
+        inp = _make_mouse_move_relative(rel_x, rel_y)
+        n = _send_inputs([inp])
+
+        self.logger.debug_msg(f"Mouse:   MOVE(rel): ({rel_x:+d},{rel_y:+d}) Sent={n}/1")
+
+        self._random_delay()
+        return n
+
+    def mouse_move_to(self, rel_x: int, rel_y: int) -> int:
+        """鼠标移动到客户区绝对坐标。
+
+        将客户区坐标转换为屏幕绝对坐标后，
+        使用 SendInput 的 ABSOLUTE 模式定位。
 
         Args:
             rel_x: 客户区 X 坐标（像素）
@@ -341,7 +376,7 @@ class SendInputSimulator:
         n = _send_inputs([inp])
 
         self.logger.debug_msg(
-            f"Mouse:   MOVE(abs): client({rel_x},{rel_y}) -> "
+            f"Mouse:   MOVE(to): client({rel_x},{rel_y}) -> "
             f"screen({abs_x},{abs_y}) -> normalized({nx},{ny}) Sent={n}/1"
         )
 
@@ -387,6 +422,136 @@ class SendInputSimulator:
         self.logger.debug_msg(f"Mouse:   CLICK    Sent={n}/2")
         self._random_delay()
         return n
+
+    # ── mouse drag (视角移动) ─────────────────────────────────────────
+
+    def mouse_drag(self, rel_x1: int, rel_y1: int, rel_x2: int, rel_y2: int) -> int:
+        """鼠标拖动（用于视角移动/画面滚动）。
+
+        按住右键 -> 移动到起点 -> 分段平滑移动到终点 -> 松开右键。
+        洛克王国中按住右键拖动可以移动视角。
+
+        Args:
+            rel_x1: 起点 X（客户区相对坐标）
+            rel_y1: 起点 Y（客户区相对坐标）
+            rel_x2: 终点 X（客户区相对坐标）
+            rel_y2: 终点 Y（客户区相对坐标）
+
+        Returns:
+            成功发送的事件总数
+        """
+        self._random_delay()
+
+        sw, sh = self._get_screen_size()
+
+        # 右键按下（按住不松开）
+        down = _make_mouse_button_input(MOUSEEVENTF_RIGHTDOWN)
+        n1 = _send_inputs([down])
+        self.logger.debug_msg(f"Mouse:   RIGHT_DOWN (hold) Sent={n1}/1")
+        time.sleep(0.08)
+
+        # 移动到起点（绝对移动）
+        abs_x1, abs_y1 = self._client_to_screen(rel_x1, rel_y1)
+        nx1 = _normalize_coord(abs_x1, sw)
+        ny1 = _normalize_coord(abs_y1, sh)
+        inp1 = _make_mouse_move_input(nx1, ny1)
+        n2 = _send_inputs([inp1])
+        self.logger.debug_msg(f"Mouse:   MOVE to start ({rel_x1},{rel_y1}) -> ({nx1},{ny1}) Sent={n2}/1")
+        time.sleep(0.05)
+
+        # 分段移动到终点（平滑过渡，模拟真实拖动）
+        steps = 4
+        dx = rel_x2 - rel_x1
+        dy = rel_y2 - rel_y1
+
+        for i in range(1, steps + 1):
+            # 计算当前分段终点
+            cur_x = rel_x1 + int(dx * i / steps)
+            cur_y = rel_y1 + int(dy * i / steps)
+
+            abs_x, abs_y = self._client_to_screen(cur_x, cur_y)
+            nx = _normalize_coord(abs_x, sw)
+            ny = _normalize_coord(abs_y, sh)
+
+            inp = _make_mouse_move_input(nx, ny)
+            n = _send_inputs([inp])
+            self.logger.debug_msg(f"Mouse:   DRAG step {i}/{steps} -> ({nx},{ny}) Sent={n}/1")
+            time.sleep(0.03 + random.uniform(0, 0.02))  # 30-50ms
+
+        # 右键松开
+        up = _make_mouse_button_input(MOUSEEVENTF_RIGHTUP)
+        n_last = _send_inputs([up])
+        self.logger.debug_msg(f"Mouse:   RIGHT_UP   Sent={n_last}/1")
+
+        self._random_delay()
+        total = n1 + n2 + (steps * 1) + n_last
+        return total
+
+    def mouse_drag_relative(self, dx: int, dy: int) -> int:
+        """相对鼠标拖动（用于视角移动）。
+
+        按住右键 -> 多次小幅度相对移动 -> 松开右键。
+        模拟真实鼠标拖动，分段发送移动事件。
+
+        Args:
+            dx: 相对移动 X（像素）
+            dy: 相对移动 Y（像素）
+
+        Returns:
+            成功发送的事件总数
+        """
+        self._random_delay()
+
+        # 右键按下（按住不松开）
+        down = _make_mouse_button_input(MOUSEEVENTF_RIGHTDOWN)
+        n1 = _send_inputs([down])
+        self.logger.debug_msg(f"Mouse:   RIGHT_DOWN (hold) Sent={n1}/1")
+        time.sleep(0.1)  # 按下后等待游戏响应
+
+        # 分段相对移动（每次移动一小段，模拟真实拖动）
+        # 每段 20-50 像素，分多次移动
+        total_sent = 0
+
+        # 计算分段
+        step_size = 30  # 每段移动 30 像素
+        steps_x = abs(dx) // step_size if dx != 0 else 0
+        steps_y = abs(dy) // step_size if dy != 0 else 0
+        steps = max(steps_x, steps_y, 1)  # 至少 1 段
+
+        for i in range(steps):
+            # 计算当前段位移
+            ratio = (i + 1) / steps
+            target_dx = int(dx * ratio)
+            target_dy = int(dy * ratio)
+
+            # 已发送的位移
+            prev_ratio = i / steps if i > 0 else 0
+            prev_dx = int(dx * prev_ratio)
+            prev_dy = int(dy * prev_ratio)
+
+            # 本段位移
+            cur_dx = target_dx - prev_dx
+            cur_dy = target_dy - prev_dy
+
+            if cur_dx != 0 or cur_dy != 0:
+                inp = _make_mouse_move_relative(cur_dx, cur_dy)
+                n = _send_inputs([inp])
+                total_sent += n
+                self.logger.debug_msg(
+                    f"Mouse:   DRAG_REL step{i+1}/{steps} ({cur_dx:+d},{cur_dy:+d}) "
+                    f"Total={total_sent}"
+                )
+
+            # 每段间隔随机延迟
+            time.sleep(0.05 + random.uniform(0, 0.03))
+
+        # 右键松开
+        up = _make_mouse_button_input(MOUSEEVENTF_RIGHTUP)
+        n2 = _send_inputs([up])
+        self.logger.debug_msg(f"Mouse:   RIGHT_UP   Sent={n2}/1")
+
+        self._random_delay()
+        return n1 + total_sent + n2
 
 
 # ── Tests (no actual input sent) ──────────────────────────────────────
@@ -518,10 +683,6 @@ def test_sendinput_simulator() -> bool:
     return failed == 0
 
 
-if __name__ == "__main__":
-    test_sendinput_simulator()
-
-
 # ── Quick input verification ───────────────────────────────────────────
 
 def test_real_input():
@@ -530,8 +691,6 @@ def test_real_input():
     IMPORTANT: This will actually send keyboard/mouse events!
     Make sure your game window is ready and you can stop quickly if needed.
     """
-    import sys
-
     try:
         from src.core.capabilities.window_mgr import WindowManager
 
@@ -564,11 +723,11 @@ def test_real_input():
         result = sim.mouse_move(50, 50)
         print(f"→ Result: {result} events sent\n")
 
-        print("✓ Real input test completed!")
+        print("Real input test completed!")
         print("=" * 50 + "\n")
 
     except Exception as e:
-        print(f"\n✗ Error during real input test: {e}\n")
+        print(f"\nError during real input test: {e}\n")
         import traceback
         traceback.print_exc()
 

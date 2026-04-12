@@ -18,7 +18,7 @@ from typing import Callable, Optional, Tuple
 import numpy as np
 
 from src.detectors import BattleModeDetector, BattleExitConfirmDetector
-from src.core.capabilities.sendinput_sim import SendInputSimulator
+from src.core.capabilities.interception_sim import InterceptionSimulator
 from src.logger import get_logger
 
 # ── 配置常量 ──────────────────────────────────────────────────────────
@@ -64,14 +64,14 @@ class BattleExit:
 
     def __init__(
         self,
-        send_input: SendInputSimulator,
+        send_input: InterceptionSimulator,
         battle_detector: BattleModeDetector,
         exit_confirm_detector: Optional[BattleExitConfirmDetector] = None,
         debug: bool = False,
     ) -> None:
         """
         Args:
-            send_input: SendInputSimulator 实例（已注入）
+            send_input: InterceptionSimulator 实例（已注入）
             battle_detector: BattleModeDetector 实例（用于检测是否还在战斗状态）
             exit_confirm_detector: BattleExitConfirmDetector 实例（可选，用于检测同意框）
             debug: 是否启用调试日志
@@ -173,7 +173,7 @@ class BattleExit:
             click_x, click_y = self._compute_click_pos(frame.shape[1], frame.shape[0])
             self.logger.info(f"  点击确认按钮 (客户区坐标: {click_x}, {click_y})...")
             try:
-                self._send_input.mouse_move(click_x, click_y)
+                self._send_input.mouse_move_to(click_x, click_y)
                 time.sleep(0.1)
                 self._send_input.mouse_click()
             except Exception as exc:

@@ -48,18 +48,18 @@ class SearchStrategy(BaseStrategy):
         """
         # 如果检测到精灵，停止搜索
         if ctx.detections and len(ctx.detections) > 0:
-            ctx.logger.debug("检测到精灵，停止搜索")
+            ctx.logger.debug_msg("检测到精灵，停止搜索")
             self._reset_search_state()
             return Action.NO_OP
 
         # 如果已经平移了太多次，重置并暂停
         if self.current_cycle >= self.max_pan_cycles:
-            ctx.logger.debug(f"已完成 {self.max_pan_cycles} 个搜索周期，重置")
+            ctx.logger.debug_msg(f"已完成 {self.max_pan_cycles} 个搜索周期，重置")
             self._reset_search_state()
             return Action.NO_OP
 
         # 执行平移搜索
-        ctx.logger.debug(
+        ctx.logger.debug_msg(
             f"执行平移搜索: 方向={'右' if self.pan_direction > 0 else '左'}, "
             f"角度={self.pan_angle}°, 周期={self.current_cycle}/{self.max_pan_cycles}"
         )

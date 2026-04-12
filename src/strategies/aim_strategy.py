@@ -46,7 +46,7 @@ class AimStrategy(BaseStrategy):
         """
         # 检查是否有已验证的目标
         if not ctx.verified_target:
-            ctx.logger.debug("没有已验证的目标，无法瞄准")
+            ctx.logger.debug_msg("没有已验证的目标，无法瞄准")
             return Action.NO_OP
 
         # 检查投掷次数
@@ -56,7 +56,7 @@ class AimStrategy(BaseStrategy):
 
         # 检查是否在精灵球界面
         if not ctx.is_capture_mode:
-            ctx.logger.debug("不在精灵球界面，需要按 E")
+            ctx.logger.debug_msg("不在精灵球界面，需要按 E")
             return Action.PRESS_E
 
         # 获取目标中心点
@@ -72,7 +72,7 @@ class AimStrategy(BaseStrategy):
             ctx.frame_height
         )
 
-        ctx.logger.debug(
+        ctx.logger.debug_msg(
             f"瞄准: 目标中心={target_center}, 偏移=({offset_x}, {offset_y}), "
             f"投掷次数={ctx.throw_count}/{self.max_throws}"
         )

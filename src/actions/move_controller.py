@@ -15,7 +15,7 @@ import random
 import time
 from typing import Optional, Tuple
 
-from src.core.capabilities.sendinput_sim import SendInputSimulator
+from src.core.capabilities.interception_sim import InterceptionSimulator
 from src.core.capabilities.target_scoring import TargetScore
 from src.logger import get_logger
 
@@ -43,10 +43,10 @@ class MoveController:
     使角色逐步靠近目标，直到目标中心落在画面中心 ±150px 范围内。
     """
 
-    def __init__(self, send_input: SendInputSimulator, debug: bool = False) -> None:
+    def __init__(self, send_input: InterceptionSimulator, debug: bool = False) -> None:
         """
         Args:
-            send_input: SendInputSimulator 实例（已注入）
+            send_input: InterceptionSimulator 实例（已注入）
             debug: 是否启用调试日志
         """
         self._send_input = send_input
@@ -99,6 +99,50 @@ class MoveController:
         return random.uniform(MOVE_INTERVAL_MIN, MOVE_INTERVAL_MAX)
 
     # ── public API ──────────────────────────────────────────────────
+
+    def move_forward(self, duration: float = 0.3) -> int:
+        """按 W 键向前移动。
+
+        Args:
+            duration: 按键时长（秒）
+
+        Returns:
+            成功发送的事件数
+        """
+        return self._send_input.press_key("w", duration=duration)
+
+    def move_backward(self, duration: float = 0.3) -> int:
+        """按 S 键向后移动。
+
+        Args:
+            duration: 按键时长（秒）
+
+        Returns:
+            成功发送的事件数
+        """
+        return self._send_input.press_key("s", duration=duration)
+
+    def move_left(self, duration: float = 0.3) -> int:
+        """按 A 键向左移动。
+
+        Args:
+            duration: 按键时长（秒）
+
+        Returns:
+            成功发送的事件数
+        """
+        return self._send_input.press_key("a", duration=duration)
+
+    def move_right(self, duration: float = 0.3) -> int:
+        """按 D 键向右移动。
+
+        Args:
+            duration: 按键时长（秒）
+
+        Returns:
+            成功发送的事件数
+        """
+        return self._send_input.press_key("d", duration=duration)
 
     def move_toward_target(
         self,

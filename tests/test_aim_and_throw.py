@@ -10,16 +10,17 @@ aim_and_throw 实时测试脚本
 触发条件：检测到捕捉状态（精灵球界面）时自动执行
 
 运行方式：
-    uv run python tests.test_aim_and_throw
+    uv run python tests.test_aim_and_throw --model models/trained/luoke_pet.pt
 """
 
+import argparse
 import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+import cv2
 
-from src.config import parse_args
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.core import (
     WindowManager,
     ScreenCapture,
@@ -34,7 +35,31 @@ from src.logger import get_logger
 
 
 def main():
-    args = parse_args()
+    # 命令行参数解析
+    parser = argparse.ArgumentParser(description="瞄准 + 投掷 实时测试")
+    parser.add_argument("--model", required=True, help="YOLO模型路径")
+    parser.add_argument("--process-name", default="NRC-Win64-Shipping.exe", help="游戏进程名")
+    parser.add_argument("--resolution", default="auto", help="游戏分辨率 (默认auto自动检测)")
+    parser.add_argument("--border-offset", type=int, default=0, help="边框裁剪偏移")
+    parser.add_argument("--fps", type=int, default=30, help="屏幕捕获帧率")
+    parser.add_argument("--device", default="cuda", help="推理设备")
+    parser.add_argument("--target-class", type=int, default=0, help="目标类别")
+    parser.add_argument("--confidence", type=float, default=0.5, help="置信度阈值")
+    parser.add_argument("--debug", action="store_true", help="调试模式")
+    parser.add_argument("--detection-interval", type=float, default=2.0, help="检测间隔(秒)")
+    parser.add_argument("--max-distance", type=float, default=50.0, help="太远阈值")
+    parser.add_argument("--near-threshold", type=float, default=100.0, help="靠近阈值")
+    parser.add_argument("--capture-threshold", type=float, default=200.0, help="捕捉阈值")
+    parser.add_argument("--center-offset-x", type=int, default=0, help="中心X偏移")
+    parser.add_argument("--center-offset-y", type=int, default=0, help="中心Y偏移")
+    args = parser.parse_args()
+
+    # 解析分辨率 (auto 则从窗口动态获取)
+    if args.resolution == "auto":
+        width, height = None, None  # 待窗口管理器检测
+    else:
+        width, height = map(int, args.resolution.split("x"))
+
     logger = get_logger(debug=args.debug)
 
     print("=" * 60)
@@ -61,7 +86,7 @@ def main():
     logger.info("[1/6] 初始化窗口管理...")
     window_mgr = WindowManager(
         process_name=args.process_name,
-        client_size=(args.width, args.height),
+        client_size=(1280, 720),
         border_offset=args.border_offset,
         debug=args.debug,
     )
@@ -69,28 +94,49 @@ def main():
         logger.error("未找到游戏窗口，请确保游戏已运行")
         sys.exit(1)
 
-    region = window_mgr.get_screen_region()
-    if region is None:
+    # 2. ScreenCapture 初始化（触发 dxcam 改变窗口尺寸）
+    # ⚠️ dxcam 初始化后会改变窗口尺寸，需要先启动一次来触发变化
+    logger.info("[2/6] 初始化屏幕捕获（触发窗口尺寸变化）...")
+    from src.core.capabilities.screen_cap import ScreenCaptureWithRegion
+
+    temp_region = window_mgr.get_screen_region()
+    if temp_region is None:
         logger.error("获取捕获区域失败")
         sys.exit(1)
+
+    # 临时启动 dxcam，触发窗口尺寸变化
+    temp_cap = ScreenCaptureWithRegion(fps=5, debug=False, region=temp_region)
+    with temp_cap:
+        time.sleep(0.3)  # 等待 dxcam 初始化完成
+        # dxcam 已改变窗口尺寸，现在重新获取 region
+        pass
+
+    # 退出 with 块后重新获取正确的 region
+    region = window_mgr.get_screen_region()
+    if region is None:
+        logger.error("重新获取捕获区域失败")
+        sys.exit(1)
+
     left, top, right, bottom = region
     game_width = right - left
     game_height = bottom - top
+    width = game_width
+    height = game_height
+
+    logger.info(f"  region 参数: {region}")
+    logger.info(f"  window_mgr.client_size: {window_mgr.client_size}")
+    logger.info(f"  计算尺寸: {game_width}x{game_height}")
     logger.success(f"游戏客户区: ({left}, {top}, {game_width}x{game_height})")
 
-    # 2. 屏幕捕获
-    logger.info("[2/6] 初始化屏幕捕获...")
-    cap = ScreenCapture(fps=args.fps, debug=args.debug)
-    if not cap.start(region=region):
-        logger.error("屏幕捕获启动失败")
-        sys.exit(1)
+    # 创建正式的 ScreenCapture 用于主循环
+    cap = ScreenCaptureWithRegion(fps=args.fps, debug=args.debug, region=region)
 
     # 3. 目标检测
     logger.info("[3/6] 加载检测模型...")
     detector = ObjectDetector(
-        model_path=args.model_path,
+        model_path=args.model,
         device=args.device,
-        confidence_threshold=args.confidence_threshold,
+        confidence_threshold=args.confidence,
         debug=args.debug,
     )
     if not detector.load_model():
@@ -99,9 +145,13 @@ def main():
 
     # 4. 捕捉模式检测器
     logger.info("[4/6] 初始化捕捉模式检测器...")
+    # 使用绝对路径确保模板能正确加载
+    template_path = str(Path(__file__).parent.parent / "data" / "templates" / "capture_mode.png")
+    logger.info(f"  模板路径: {template_path}")
     try:
         capture_detector = CaptureModeDetector(
-            template_path="data/templates/capture_mode.png",
+            template_path=template_path,
+            frame_size=(width, height),
             debug=args.debug,
         )
         logger.success("捕捉模式检测器初始化成功")
@@ -111,25 +161,25 @@ def main():
 
     # 5. 目标评分器
     scorer = TargetScorer(
-        screen_width=args.width,
-        screen_height=args.height,
-        max_distance_threshold=args.max_distance_threshold,
+        screen_width=width,
+        screen_height=height,
+        max_distance_threshold=args.max_distance,
         near_threshold=args.near_threshold,
         capture_threshold=args.capture_threshold,
-        center_offset_x=args.screen_center_offset_x,
-        center_offset_y=args.screen_center_offset_y,
+        center_offset_x=args.center_offset_x,
+        center_offset_y=args.center_offset_y,
     )
 
     # 6. 瞄准投掷器
     logger.info("[5/6] 初始化瞄准投掷器...")
-    send_input = SendInputSimulator(window_handle=window_mgr.hwnd)
+    send_input = SendInputSimulator(window_mgr=window_mgr)
     aim_throw = AimAndThrow(send_input=send_input, debug=args.debug)
 
     # 7. 分层覆盖窗口
     logger.info("[6/6] 创建分层覆盖窗口...")
     overlay = LayeredOverlay(
         x=left, y=top,
-        width=args.width, height=args.height,
+        width=width, height=height,
         debug=args.debug,
     )
     if not overlay.create_window():
@@ -152,15 +202,30 @@ def main():
     has_target = False          # 当前是否有目标
     throw_executed_this_cycle = False  # 本次捕捉周期是否已执行投掷
     last_capture_state = False       # 上一次捕捉状态
+    first_frame_logged = False        # 首帧是否已记录
 
     try:
         with cap:
             while True:
                 loop_start = time.time()
                 frame = cap.capture()
+
+                # 等待捕获稳定（前几帧可能是 None）
                 if frame is None:
                     time.sleep(capture_interval * 0.1)
                     continue
+
+                # 首帧记录
+                if not first_frame_logged:
+                    h, w = frame.shape[:2]
+                    logger.info(f"首帧尺寸: {w}x{h}")
+
+                    # 打印当前 ROI 坐标
+                    if capture_detector is not None:
+                        roi_x, roi_y, roi_w, roi_h = capture_detector._get_roi()
+                        logger.info(f"ROI 坐标: ({roi_x}, {roi_y}, {roi_w}, {roi_h})")
+
+                    first_frame_logged = True
 
                 # ── 检测捕捉状态 ──
                 # 当用户按 E 键时，游戏会切换到捕捉状态
@@ -214,6 +279,10 @@ def main():
                         logger.info("=" * 50)
 
                         # 执行瞄准投掷
+                        # 先将窗口置顶，确保 SendInput 正确工作
+                        window_mgr.bring_to_foreground()
+                        time.sleep(0.1)  # 等待窗口激活
+
                         success = aim_throw.aim_and_throw(
                             target=target,
                             screen_width=game_width,
@@ -237,7 +306,7 @@ def main():
                     if has_target:
                         t = target.detection
                         capture_str = "【捕捉中】" if is_capture_mode else ""
-                        logger.debug(
+                        logger.debug_msg(
                             f"{capture_str} "
                             f"目标={t.center}, 置信度={t.confidence:.2f}, "
                             f"距离={target.distance_state}"
