@@ -46,6 +46,15 @@ class Config:
     mode_match_threshold: float = 0.8       # 模板匹配阈值
     mode_timeout: float = 3.0               # 模式检测超时（秒）
 
+    # 检测覆盖层
+    overlay_draw_boxes: bool = True           # 打框开关
+    overlay_detect_interval: int = 3       # 跳帧间隔
+    overlay_lerp_alpha: float = 0.3           # 插值平滑系数
+    overlay_confirm_frames: int = 3           # 候选确认帧数
+    overlay_lost_tolerance: int = 5          # 丢失容错帧数
+    overlay_iou_threshold: float = 0.3       # IoU 匹配阈值
+    overlay_max_predict_distance: float = 100.0  # Lost 最大预测距离
+
     def __post_init__(self):
         # 解析分辨率
         if "x" in self.resolution:
@@ -91,6 +100,15 @@ def parse_args() -> Config:
     parser.add_argument("--match-threshold", type=float, default=0.8, help="模板匹配阈值")
     parser.add_argument("--mode-timeout", type=float, default=3.0, help="模式检测超时（秒）")
 
+    # 检测覆盖层
+    parser.add_argument("--overlay-draw-boxes", type=lambda x: x.lower() == "true", default=True, help="打框开关")
+    parser.add_argument("--overlay-detect-interval", type=int, default=3, help="跳帧间隔")
+    parser.add_argument("--overlay-lerp-alpha", type=float, default=0.3, help="插值平滑系数")
+    parser.add_argument("--overlay-confirm-frames", type=int, default=3, help="候选确认帧数")
+    parser.add_argument("--overlay-lost-tolerance", type=int, default=5, help="丢失容错帧数")
+    parser.add_argument("--overlay-iou-threshold", type=float, default=0.3, help="IoU 匹配阈值")
+    parser.add_argument("--overlay-max-predict-distance", type=float, default=100.0, help="Lost 最大预测距离")
+
     args = parser.parse_args()
 
     return Config(
@@ -115,4 +133,11 @@ def parse_args() -> Config:
         battle_mode_template=args.battle_template,
         mode_match_threshold=args.match_threshold,
         mode_timeout=args.mode_timeout,
+        overlay_draw_boxes=args.overlay_draw_boxes,
+        overlay_detect_interval=args.overlay_detect_interval,
+        overlay_lerp_alpha=args.overlay_lerp_alpha,
+        overlay_confirm_frames=args.overlay_confirm_frames,
+        overlay_lost_tolerance=args.overlay_lost_tolerance,
+        overlay_iou_threshold=args.overlay_iou_threshold,
+        overlay_max_predict_distance=args.overlay_max_predict_distance,
     )
