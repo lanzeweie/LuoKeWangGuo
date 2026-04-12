@@ -3,9 +3,10 @@
 瞄准与投掷模块
 
 实现目标中心瞄准 + 按住鼠标 + 松开鼠标的投掷逻辑。
-- 使用 SendInputSimulator 的 mouse_move（分段轨迹 + 随机抖动）
+集成阶段2算法：距离补偿、动量预测、平滑滤波。
+- 使用 InterceptionSimulator 的 mouse_move_to（贝塞尔曲线 + 拟人化算法）
 - mouse_down / mouse_up 完成投掷
-- 投掷时序：瞄准 → 稳定等待 → 按住 → 微调 → 松开
+- 投掷时序：平滑 → 补偿 → 预测 → 瞄准 → 稳定 → 按住 → 微调 → 松开
 """
 
 from __future__ import annotations
@@ -16,21 +17,55 @@ from typing import Optional
 
 from src.core.capabilities.target_scoring import TargetScore
 from src.core.capabilities.interception_sim import InterceptionSimulator
+from src.core.capabilities.aim_algorithms import (
+    calculate_drop_compensation,
+    MovementPredictor,
+    SmoothFilter,
+)
 from src.logger import get_logger
 
 
 class AimAndThrow:
     """瞄准目标并执行精灵球投掷。"""
 
-    def __init__(self, send_input: InterceptionSimulator, debug: bool = False) -> None:
+    def __init__(
+        self,
+        send_input: InterceptionSimulator,
+        debug: bool = False,
+        use_compensation: bool = True,
+        use_prediction: bool = True,
+        use_smoothing: bool = True,
+        smoothing_alpha: float = 0.3,
+        flight_time: float = 0.5,
+    ) -> None:
         """
         Args:
             send_input: InterceptionSimulator 实例（已注入）
             debug: 是否启用调试日志
+            use_compensation: 是否启用距离补偿
+            use_prediction: 是否启用动量预测
+            use_smoothing: 是否启用平滑滤波
+            smoothing_alpha: 平滑系数（越小越平滑）
+            flight_time: 精灵球预估飞行时间（秒）
         """
         self._send_input = send_input
         self.debug = debug
         self._log = get_logger(debug=debug)
+
+        # 算法开关
+        self._use_compensation = use_compensation
+        self._use_prediction = use_prediction
+        self._use_smoothing = use_smoothing
+        self._flight_time = flight_time
+
+        # 算法实例
+        self._smooth_filter = SmoothFilter(alpha=smoothing_alpha)
+        self._movement_predictor = MovementPredictor()
+
+    def reset_algorithms(self) -> None:
+        """重置所有算法状态（切换目标时调用）。"""
+        self._smooth_filter.reset()
+        self._movement_predictor.reset()
 
     # ── public ──────────────────────────────────────────────────────
 
@@ -44,16 +79,19 @@ class AimAndThrow:
         """
         瞄准目标中心并执行投掷。
 
-        流程：
-        1. 计算目标中心相对于屏幕中心的偏移
-        2. mouse_move 移动到目标中心（分段轨迹 + ±3-8px 随机抖动）
-        3. 等待 100-200ms 稳定
-        4. mouse_down 按住鼠标左键
-        5. fine_tune_ms 时长（300-600ms 随机）内可再微调一次（±5px）
-        6. mouse_up 松开鼠标，完成投掷
+        流程（阶段2算法）：
+        1. 获取目标中心 (cx, cy)
+        2. 平滑滤波（消除 YOLO 抖动）
+        3. 动量预测（如果目标在移动）
+        4. 距离补偿（根据 bbox 面积计算 Y 轴补偿）
+        5. mouse_move_to 移动到目标点（贝塞尔曲线 + 拟人化）
+        6. 等待 100-200ms 稳定
+        7. mouse_down 按住
+        8. 按住期间微调（±5px）
+        9. mouse_up 松开，完成投掷
 
         Args:
-            target: 目标评分对象（含 detection.center）
+            target: 目标评分对象（含 detection.center, bbox_area, distance_state）
             screen_width/height: 屏幕客户区尺寸
             fine_tune_ms: 按住后微调时长（毫秒），默认 500
 
@@ -74,14 +112,60 @@ class AimAndThrow:
                 )
             return False
 
+        # ── 阶段2算法处理 ──
+
+        # Step A: 平滑滤波
+        if self._use_smoothing:
+            smooth_x, smooth_y = self._smooth_filter.process(float(cx), float(cy))
+            if self.debug:
+                self._log.debug_msg(
+                    f"平滑滤波: ({cx},{cy}) -> ({smooth_x:.1f},{smooth_y:.1f})"
+                )
+        else:
+            smooth_x, smooth_y = float(cx), float(cy)
+
+        # Step B: 动量预测
+        self._movement_predictor.update(smooth_x, smooth_y)
+        if self._use_prediction:
+            pred_x, pred_y = self._movement_predictor.predict(self._flight_time)
+            if self.debug:
+                self._log.debug_msg(
+                    f"动量预测: ({smooth_x:.1f},{smooth_y:.1f}) -> ({pred_x:.1f},{pred_y:.1f})"
+                )
+        else:
+            pred_x, pred_y = smooth_x, smooth_y
+
+        # Step C: 距离补偿
+        if self._use_compensation:
+            screen_area = screen_width * screen_height
+            y_comp = calculate_drop_compensation(
+                bbox_area=target.bbox_area,
+                screen_area=screen_area,
+            )
+            aim_x = int(pred_x)
+            aim_y = int(pred_y) + y_comp
+            if self.debug:
+                self._log.debug_msg(
+                    f"距离补偿: area={target.bbox_area:.0f}, "
+                    f"state={target.distance_state}, y_comp={y_comp}, "
+                    f"aim=({aim_x},{aim_y})"
+                )
+        else:
+            aim_x = int(pred_x)
+            aim_y = int(pred_y)
+
+        # 钳制到屏幕范围内
+        aim_x = max(0, min(aim_x, screen_width - 1))
+        aim_y = max(0, min(aim_y, screen_height - 1))
+
         if self.debug:
             self._log.debug_msg(
-                f"aim_and_throw: 目标 center=({cx},{cy})"
+                f"aim_and_throw: 原始=({cx},{cy}), 最终瞄准=({aim_x},{aim_y})"
             )
 
-        # Step 1: 移动到目标中心（使用客户区绝对坐标）
+        # Step 1: 移动到目标点（使用客户区绝对坐标）
         try:
-            self._send_input.mouse_move_to(cx, cy)
+            self._send_input.mouse_move_to(aim_x, aim_y)
         except Exception as exc:
             if self.debug:
                 self._log.debug_msg(f"aim_and_throw: mouse_move_to 失败: {exc}")
@@ -141,6 +225,8 @@ class AimAndThrow:
         """
         仅瞄准不投掷，用于调试。
 
+        同样经过平滑 → 预测 → 补偿的算法流水线。
+
         Returns:
             True 表示瞄准成功
         """
@@ -158,13 +244,43 @@ class AimAndThrow:
                 )
             return False
 
+        # 平滑滤波
+        if self._use_smoothing:
+            smooth_x, smooth_y = self._smooth_filter.process(float(cx), float(cy))
+        else:
+            smooth_x, smooth_y = float(cx), float(cy)
+
+        # 动量预测
+        self._movement_predictor.update(smooth_x, smooth_y)
+        if self._use_prediction:
+            pred_x, pred_y = self._movement_predictor.predict(self._flight_time)
+        else:
+            pred_x, pred_y = smooth_x, smooth_y
+
+        # 距离补偿
+        if self._use_compensation:
+            screen_area = screen_width * screen_height
+            y_comp = calculate_drop_compensation(
+                bbox_area=target.bbox_area,
+                screen_area=screen_area,
+            )
+            aim_x = int(pred_x)
+            aim_y = int(pred_y) + y_comp
+        else:
+            aim_x = int(pred_x)
+            aim_y = int(pred_y)
+
+        # 钳制到屏幕范围
+        aim_x = max(0, min(aim_x, screen_width - 1))
+        aim_y = max(0, min(aim_y, screen_height - 1))
+
         if self.debug:
             self._log.debug_msg(
-                f"aim_only: 目标 center=({cx},{cy})"
+                f"aim_only: 原始=({cx},{cy}), 瞄准=({aim_x},{aim_y})"
             )
 
         try:
-            self._send_input.mouse_move_to(cx, cy)
+            self._send_input.mouse_move_to(aim_x, aim_y)
         except Exception as exc:
             if self.debug:
                 self._log.debug_msg(f"aim_only: mouse_move_to 失败: {exc}")
@@ -207,21 +323,26 @@ class _MockSendInput:
 
 
 def _make_target(cx: int, cy: int) -> TargetScore:
-    """Helper to construct a minimal TargetScore for tests."""
+    """Helper to construct a minimal TargetScore for tests.
+
+    bbox_area 设为 15000 (约 122x122 的框)，处于 CLOSE 范围
+    （> 1.5% 屏幕面积 = 13824），补偿为 0。
+    """
     from src.core.capabilities.detection import DetectionResult
 
+    half = 61  # 122x122 -> area = 14884 (> 13824, CLOSE)
     det = DetectionResult(
-        x1=cx - 20,
-        y1=cy - 20,
-        x2=cx + 20,
-        y2=cy + 20,
+        x1=cx - half,
+        y1=cy - half,
+        x2=cx + half,
+        y2=cy + half,
         confidence=0.95,
         class_id=0,
     )
     return TargetScore(
         detection=det,
         distance_to_center=0.0,
-        bbox_area=1600.0,
+        bbox_area=float(half * 2 * half * 2),  # 14884
         distance_state="CLOSE",
         priority_rank=1,
     )
