@@ -7,7 +7,7 @@
 
 import json
 import os
-from typing import Tuple
+from typing import Tuple, List
 
 # 配置文件路径
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -88,3 +88,60 @@ def load_click_point(name: str) -> Tuple[float, float]:
         )
     except Exception:
         return (0.5, 0.5)
+
+
+def load_mask_regions() -> List[Tuple[float, float, float, float]]:
+    """从配置文件加载遮蔽区域列表
+
+    Returns:
+        [(rel_x, rel_y, rel_w, rel_h), ...] 遮蔽区域列表
+    """
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            config = json.load(f)
+        regions = config.get("mask_regions", [])
+        return [
+            (r["rel_x"], r["rel_y"], r["rel_w"], r["rel_h"])
+            for r in regions
+        ]
+    except Exception:
+        return []
+
+
+def filter_masked_detections(
+    detections,
+    mask_regions: List[Tuple[float, float, float, float]],
+    frame_w: int,
+    frame_h: int,
+):
+    """过滤掉中心点在遮蔽区域内的检测结果
+
+    Args:
+        detections: 检测结果列表（具有 x1, y1, x2, y2 属性）
+        mask_regions: 遮蔽区域列表 [(rel_x, rel_y, rel_w, rel_h), ...]
+        frame_w: 帧宽度
+        frame_h: 帧高度
+
+    Returns:
+        过滤后的检测结果列表
+    """
+    if not mask_regions:
+        return detections
+
+    filtered = []
+    for det in detections:
+        cx = (det.x1 + det.x2) / 2
+        cy = (det.y1 + det.y2) / 2
+        rel_cx = cx / frame_w
+        rel_cy = cy / frame_h
+
+        in_mask = False
+        for mx, my, mw, mh in mask_regions:
+            if mx <= rel_cx <= mx + mw and my <= rel_cy <= my + mh:
+                in_mask = True
+                break
+
+        if not in_mask:
+            filtered.append(det)
+
+    return filtered

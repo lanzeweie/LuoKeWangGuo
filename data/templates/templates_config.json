@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-11 01:55:49",
+  "generated_at": "2026-04-12 17:52:43",
   "templates": {
     "capture_mode": {
       "rel_x": 0.9375,
@@ -50,5 +50,19 @@
       "window_w": 1280,
       "window_h": 720
     }
-  }
+  },
+  "mask_regions": [
+    {
+      "rel_x": 0.3914,
+      "rel_y": 0.7042,
+      "rel_w": 0.0633,
+      "rel_h": 0.0889
+    },
+    {
+      "rel_x": 0.0531,
+      "rel_y": 0.1125,
+      "rel_w": 0.032,
+      "rel_h": 0.4528
+    }
+  ]
 }

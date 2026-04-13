@@ -46,7 +46,7 @@ class ObjectDetector:
     """目标检测器"""
 
     def __init__(self, model_path: str, device: str = "cpu",
-                 confidence_threshold: float = 0.5, debug: bool = False):
+                 confidence_threshold: float = 0.5, iou_threshold: float = 0.7, debug: bool = False):
         """
         初始化目标检测器
 
@@ -54,11 +54,13 @@ class ObjectDetector:
             model_path: YOLO模型路径 (.pt文件)
             device: 推理设备 ('cpu' 或 'cuda')
             confidence_threshold: 置信度阈值
+            iou_threshold: NMS IoU 阈值（默认 0.7，越高越严格合并重叠框）
             debug: 是否启用调试模式
         """
         self.model_path = model_path
         self.device = device
         self.confidence_threshold = confidence_threshold
+        self.iou_threshold = iou_threshold
         self.debug = debug
         self.logger = get_logger(debug=debug)
         self.model: Optional[YOLO] = None
@@ -111,6 +113,7 @@ class ObjectDetector:
             results = self.model(
                 frame,
                 conf=self.confidence_threshold,
+                iou=self.iou_threshold,
                 device=self.device,
                 verbose=False
             )

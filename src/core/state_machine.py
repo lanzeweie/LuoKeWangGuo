@@ -52,6 +52,9 @@ class StateMachine:
         self.timeout_threshold: float = 10.0  # 状态超时阈值（秒）
         self.center_threshold: int = 40  # 目标在中心的阈值（像素）
 
+        # 动作标志（供主循环检查）
+        self.should_execute_throw: bool = False  # 是否需要执行投掷
+
     def transition(self, new_state: State):
         """
         状态转换
@@ -191,6 +194,9 @@ class StateMachine:
         self.throw_count += 1
         self.logger.info(f"执行投掷 (第 {self.throw_count}/{self.max_throws} 次)")
 
+        # 设置投掷标志，供主循环检查
+        self.should_execute_throw = True
+
         # 投掷后进入等待状态
         self.transition(State.WAIT)
 
@@ -252,6 +258,7 @@ class StateMachine:
         self.target = None
         self.verified_target = None
         self.throw_count = 0
+        self.should_execute_throw = False
         self._verifier.reset()
 
     def get_state_info(self) -> dict:

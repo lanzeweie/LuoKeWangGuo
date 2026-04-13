@@ -23,6 +23,8 @@ LWA_ALPHA = 0x00000002
 ULW_ALPHA = 0x00000002
 AC_SRC_OVER = 0x00
 AC_SRC_ALPHA = 0x01
+# 截屏时排除窗口（关键！防止覆盖层框被截到下一帧，导致 YOLO 看到"带框的宠物"漏检）
+WDA_EXCLUDEFROMCAPTURE = 0x00000011
 
 # ── ctypes 结构体 ──
 
@@ -91,6 +93,8 @@ gdi32.DeleteDC.argtypes = [wintypes.HDC]
 gdi32.DeleteDC.restype = ctypes.c_bool
 gdi32.SetPixel.argtypes = [wintypes.HDC, ctypes.c_int, ctypes.c_int, ctypes.c_uint]
 gdi32.SetPixel.restype = ctypes.c_uint
+user32.SetWindowDisplayAffinity.argtypes = [wintypes.HWND, wintypes.DWORD]
+user32.SetWindowDisplayAffinity.restype = wintypes.BOOL
 
 
 class LayeredOverlay:
@@ -149,6 +153,10 @@ class LayeredOverlay:
                 return False
 
             win32gui.ShowWindow(self._hwnd, win32con.SW_SHOWNA)
+
+            # 关键修复：设置 WDA_EXCLUDEFROMCAPTURE，防止覆盖层被截屏截取
+            # 否则画框会污染下一帧截图，导致 YOLO 看到"带框的宠物"漏检
+            user32.SetWindowDisplayAffinity(self._hwnd, WDA_EXCLUDEFROMCAPTURE)
 
             # 创建离屏 DC
             self._screen_dc = win32gui.GetDC(0)

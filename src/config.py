@@ -15,6 +15,7 @@ class Config:
     model_path: str
     target_class: int = 0
     confidence_threshold: float = 0.5
+    nms_iou_threshold: float = 0.45  # NMS IoU 阈值（合并重叠框）
 
     # 窗口配置
     process_name: str = "NRC-Win64-Shipping.exe"
@@ -71,6 +72,7 @@ def parse_args() -> Config:
     parser.add_argument("--model", required=True, help="YOLO模型路径 (.pt文件)")
     parser.add_argument("--target-class", type=int, default=0, help="目标宠物类别ID")
     parser.add_argument("--confidence", type=float, default=0.5, help="置信度阈值")
+    parser.add_argument("--nms-iou", type=float, default=0.7, help="NMS IoU 阈值（合并重叠框，默认 0.7）")
 
     # 窗口相关
     parser.add_argument("--process-name", default="NRC-Win64-Shipping.exe", help="游戏进程名")
@@ -115,6 +117,7 @@ def parse_args() -> Config:
         model_path=args.model,
         target_class=args.target_class,
         confidence_threshold=args.confidence,
+        nms_iou_threshold=args.nms_iou,
         process_name=args.process_name,
         resolution=args.resolution,
         border_offset=args.border_offset,

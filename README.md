@@ -57,6 +57,7 @@ src/
 │
 └── tools/                           # 工具模块（GUI / 调试）
     ├── template_captor.py          # 模板截取工具
+    ├── mask_region_editor.py       # 遮蔽区域编辑器（多次框选，忽略 YOLO 检测区域）
     ├── annotate_roi.py             # ROI 标注工具
     └── diagnose_window.py          # 窗口诊断工具
 ```
@@ -147,6 +148,9 @@ uv run python -m src.tools.template_captor --battle
 # Interception 单元测试（算法测试）
 uv run python tests/test_interception_sim.py
 
+# 遮蔽区域编辑器（框选 YOLO 检测时忽略的区域）
+uv run python -m src.tools.mask_region_editor
+
 # 一键式输入测试（自动测试鼠标+键盘）
 uv run python -m src.tools.test_input_auto
 
@@ -192,3 +196,4 @@ uv run python -m src.core.capabilities.sendinput_sim --real-test
 | 项目上下文 | `.claude/CLAUDE.md` |
 | CV 模板目录 | `data/templates/` |
 | 统一配置文件 | `data/templates/templates_config.json` |
+| 遮蔽区域编辑器 | `src/tools/mask_region_editor.py` |

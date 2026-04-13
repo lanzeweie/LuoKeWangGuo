@@ -17,8 +17,7 @@ import argparse
 import sys
 import time
 from pathlib import Path
-
-import cv2
+from typing import Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.core import (
@@ -28,8 +27,12 @@ from src.core import (
     LayeredOverlay,
     CaptureModeDetector,
 )
+from src.core.capabilities.detection_overlay import DetectionOverlay
 from src.core.capabilities.target_scoring import TargetScorer
-from src.core.capabilities.sendinput_sim import SendInputSimulator
+from src.core.capabilities.interception_sim import (
+    InterceptionSimulator,
+    INTERCEPTION_AVAILABLE,
+)
 from src.actions.aim_and_throw import AimAndThrow
 from src.logger import get_logger
 
@@ -45,6 +48,7 @@ def main():
     parser.add_argument("--device", default="cuda", help="推理设备")
     parser.add_argument("--target-class", type=int, default=0, help="目标类别")
     parser.add_argument("--confidence", type=float, default=0.5, help="置信度阈值")
+    parser.add_argument("--nms-iou", type=float, default=0.7, help="NMS IoU 阈值（合并重叠框）")
     parser.add_argument("--debug", action="store_true", help="调试模式")
     parser.add_argument("--detection-interval", type=float, default=2.0, help="检测间隔(秒)")
     parser.add_argument("--max-distance", type=float, default=50.0, help="太远阈值")
@@ -137,6 +141,7 @@ def main():
         model_path=args.model,
         device=args.device,
         confidence_threshold=args.confidence,
+        iou_threshold=args.nms_iou,
         debug=args.debug,
     )
     if not detector.load_model():
@@ -153,13 +158,30 @@ def main():
             template_path=template_path,
             frame_size=(width, height),
             debug=args.debug,
+            match_threshold=0.70,  # 降低阈值避免波动导致捕捉状态不稳定
         )
         logger.success("捕捉模式检测器初始化成功")
     except Exception as e:
         logger.warning(f"捕捉模式检测器初始化失败: {e}，将跳过模式检测")
         capture_detector = None
 
-    # 5. 目标评分器
+    # 5. DetectionOverlay — 跳帧/跟踪/插值/绘框（复用模块）
+    logger.info("[5/7] 初始化 DetectionOverlay...")
+    overlay_det = DetectionOverlay(
+        detector=detector,
+        screen_width=width,
+        screen_height=height,
+        detect_interval=3,
+        lerp_alpha=0.7,
+        confirm_frames=3,
+        lost_tolerance=5,
+        iou_threshold=0.3,
+        draw_boxes=True,
+        min_confidence=args.confidence,
+        debug=args.debug,
+    )
+
+    # 6. 目标评分器
     scorer = TargetScorer(
         screen_width=width,
         screen_height=height,
@@ -170,13 +192,19 @@ def main():
         center_offset_y=args.center_offset_y,
     )
 
-    # 6. 瞄准投掷器
-    logger.info("[5/6] 初始化瞄准投掷器...")
-    send_input = SendInputSimulator(window_mgr=window_mgr)
+    # 7. 瞄准投掷器
+    logger.info("[6/7] 初始化输入模拟（Interception 驱动）...")
+    if not INTERCEPTION_AVAILABLE:
+        logger.error("Interception 驱动不可用")
+        logger.error("请运行: pip install interception")
+        logger.error("并以管理员身份运行此脚本")
+        sys.exit(1)
+
+    send_input = InterceptionSimulator(window_mgr=window_mgr, debug=args.debug)
     aim_throw = AimAndThrow(send_input=send_input, debug=args.debug)
 
-    # 7. 分层覆盖窗口
-    logger.info("[6/6] 创建分层覆盖窗口...")
+    # 8. 分层覆盖窗口
+    logger.info("[7/7] 创建分层覆盖窗口...")
     overlay = LayeredOverlay(
         x=left, y=top,
         width=width, height=height,
@@ -194,8 +222,6 @@ def main():
 
     # ── 主循环 ──
     capture_interval = 1.0 / args.fps
-    detect_interval = args.detection_interval
-    last_detect_time = 0.0
 
     # 状态
     is_capture_mode = False      # 当前是否在捕捉模式
@@ -228,98 +254,132 @@ def main():
                     first_frame_logged = True
 
                 # ── 检测捕捉状态 ──
-                # 当用户按 E 键时，游戏会切换到捕捉状态
-                # 我们通过 CV 检测来判断
                 capture_detected = False
                 if capture_detector is not None:
                     capture_detected, confidence = capture_detector.is_capture_mode(frame)
-                else:
-                    # 如果没有模板，假设always in capture mode for testing
-                    # 用户可以通过按 E 来模拟
-                    pass
 
                 # 检测捕捉状态变化（上升沿）
                 if capture_detected and not last_capture_state:
                     logger.info("【检测到捕捉状态切换】开始瞄准投掷...")
+                    # 只在"真正开始新周期"时重置 — 即之前不在捕捉模式
+                    # 避免捕捉状态抖动时反复触发 reset 把 candidate 清掉
+                    if not is_capture_mode:
+                        overlay_det.reset()  # 清空旧跟踪目标
                     is_capture_mode = True
                     throw_executed_this_cycle = False  # 重置投掷标志
 
                 last_capture_state = capture_detected
 
-                # ── 检测（按可配置间隔） ──
-                now = time.time()
-                if (now - last_detect_time) >= detect_interval:
-                    detections = detector.detect(frame, target_class=args.target_class)
-                    last_detect_time = now
+                # ── DetectionOverlay 更新（跳帧/跟踪/插值） ──
+                tracked = overlay_det.update(frame)
 
-                    # 评分与排序
-                    scored = scorer.score_detections(detections)
+                # 提取需要绘框的目标（包括 candidate）
+                draw_targets = [t for t in tracked if t.state in ("active", "lost", "candidate")]
 
-                    # 更新状态
-                    has_target = len(scored) > 0
-                    target = scored[0] if has_target else None
+                # 转换为 LayeredOverlay 需要的 DetectionResult 格式
+                from src.core.capabilities.detection import DetectionResult
+                det_results = []
+                for t in draw_targets:
+                    x1, y1, x2, y2 = map(int, t.bbox)
+                    det = DetectionResult(x1, y1, x2, y2, t.confidence, t.class_id)
+                    det_results.append(det)
 
-                    # ── 实时打框（持续显示） ──
-                    state_text = "捕捉中" if is_capture_mode else "SEARCH"
-                    overlay.draw_scored(
-                        scored,
-                        verification_progress=1 if is_capture_mode else 0,
-                        verification_required=1,
-                        current_state=state_text,
+                # 绘制到覆盖层
+                overlay.draw(det_results if draw_targets else [])
+
+                # ── 业务逻辑：从活跃目标中获取最佳目标 ──
+                active = [t for t in tracked if t.state == "active"]
+                has_target = len(active) > 0
+
+                # ── 自动瞄准 + 投掷执行 ──
+                # 触发条件：捕捉模式激活 + 有活跃目标 + 本次周期未执行
+                if is_capture_mode and not throw_executed_this_cycle and not has_target:
+                    logger.warning(
+                        f"[瞄准跳过] is_capture_mode={is_capture_mode}, "
+                        f"has_target={has_target}(active={len(active)}), "
+                        f"tracked总数={len(tracked)}, "
+                        f"candidate={len([t for t in tracked if t.state=='candidate'])}, "
+                        f"lost={len([t for t in tracked if t.state=='lost'])}"
+                    )
+                if is_capture_mode and has_target and not throw_executed_this_cycle:
+                    # 对活跃目标进行评分排序
+                    scored = scorer.score_detections([
+                        DetectionResult(
+                            *map(int, t.bbox),
+                            t.confidence,
+                            t.class_id,
+                        )
+                        for t in active
+                    ])
+                    target = scored[0]
+
+                    logger.info("=" * 50)
+                    logger.info("【自动瞄准 + 投掷】")
+                    logger.info(f"  目标中心: {target.detection.center}")
+                    logger.info(f"  置信度: {target.detection.confidence:.3f}")
+                    logger.info(f"  距离状态: {target.distance_state}")
+                    logger.info("=" * 50)
+
+                    # 执行瞄准投掷
+                    window_mgr.bring_to_foreground()
+                    time.sleep(0.1)
+
+                    # 定义实时目标获取函数（用于持续瞄准3秒期间）
+                    # 注意：在 aim_and_throw 的 3 秒循环期间，会持续调用此函数
+                    def get_realtime_target() -> Optional[Tuple[int, int]]:
+                        """从实时检测中获取当前活跃目标的中心位置"""
+                        # 获取当前帧（非阻塞）
+                        current_frame = cap.capture()
+                        if current_frame is None:
+                            return None
+
+                        # 更新 DetectionOverlay
+                        current_tracked = overlay_det.update(current_frame)
+
+                        # 过滤出活跃状态的目标
+                        current_active = [
+                            t for t in current_tracked
+                            if t.state == "active"
+                        ]
+                        if not current_active:
+                            return None
+
+                        # 返回第一个活跃目标的中心
+                        current_target = current_active[0]
+                        cx = int((current_target.bbox[0] + current_target.bbox[2]) / 2)
+                        cy = int((current_target.bbox[1] + current_target.bbox[3]) / 2)
+                        return cx, cy
+
+                    success = aim_throw.aim_and_throw(
+                        target=target,
+                        screen_width=game_width,
+                        screen_height=game_height,
+                        fine_tune_ms=500,
+                        get_target_func=get_realtime_target,
                     )
 
-                    # ── 自动瞄准 + 投掷执行 ──
-                    # 触发条件：捕捉模式激活 + 有目标 + 本次周期未执行
-                    if is_capture_mode and has_target and not throw_executed_this_cycle:
-                        logger.info("=" * 50)
-                        logger.info("【自动瞄准 + 投掷】")
-                        logger.info(f"  目标中心: {target.detection.center}")
-                        logger.info(f"  置信度: {target.detection.confidence:.3f}")
-                        logger.info(f"  距离状态: {target.distance_state}")
-                        logger.info("=" * 50)
+                    if success:
+                        logger.success("投掷执行成功")
+                    else:
+                        logger.error("投掷执行失败")
 
-                        # 执行瞄准投掷
-                        # 先将窗口置顶，确保 SendInput 正确工作
-                        window_mgr.bring_to_foreground()
-                        time.sleep(0.1)  # 等待窗口激活
+                    # 标记本次周期已执行
+                    throw_executed_this_cycle = True
 
-                        success = aim_throw.aim_and_throw(
-                            target=target,
-                            screen_width=game_width,
-                            screen_height=game_height,
-                            fine_tune_ms=500,
-                        )
+                    # 重置捕捉模式（等待用户再次按 E）
+                    is_capture_mode = False
+                    logger.info("捕捉周期结束，等待再次进入捕捉模式...")
 
-                        if success:
-                            logger.success("✓ 投掷执行成功")
-                        else:
-                            logger.error("✗ 投掷执行失败")
-
-                        # 标记本次周期已执行
-                        throw_executed_this_cycle = True
-
-                        # 重置捕捉模式（等待用户再次按 E）
-                        is_capture_mode = False
-                        logger.info("捕捉周期结束，等待再次进入捕捉模式...")
-
-                    # 打印检测信息
-                    if has_target:
-                        t = target.detection
-                        capture_str = "【捕捉中】" if is_capture_mode else ""
-                        logger.debug_msg(
-                            f"{capture_str} "
-                            f"目标={t.center}, 置信度={t.confidence:.2f}, "
-                            f"距离={target.distance_state}"
-                        )
-                else:
-                    # 没有检测时也更新 overlay
-                    state_text = "捕捉中" if is_capture_mode else "SEARCH"
-                    overlay.draw_scored(
-                        [],
-                        verification_progress=1 if is_capture_mode else 0,
-                        verification_required=1,
-                        current_state=state_text,
-                    )
+                # 打印检测信息（始终打印，方便调试）
+                detect_mark = "YOLO" if overlay_det.is_detect_frame else "LERP"
+                active_count = len([t for t in tracked if t.state == "active"])
+                lost_count = len([t for t in tracked if t.state == "lost"])
+                cand_count = len([t for t in tracked if t.state == "candidate"])
+                capture_str = "【捕捉中】" if is_capture_mode else ""
+                logger.debug_msg(
+                    f"{capture_str} {detect_mark} | "
+                    f"A:{active_count} L:{lost_count} C:{cand_count}"
+                )
 
                 # ── 帧率限制 ──
                 elapsed = time.time() - loop_start

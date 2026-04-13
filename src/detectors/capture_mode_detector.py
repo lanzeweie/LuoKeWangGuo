@@ -42,16 +42,18 @@ class CaptureModeDetector:
     支持动态分辨率：构造函数可传入 frame_size，ROI 会根据相对坐标自动换算
     """
 
-    def __init__(self, template_path: str, frame_size: Tuple[int, int] = None, debug: bool = False):
+    def __init__(self, template_path: str, frame_size: Tuple[int, int] = None, debug: bool = False, match_threshold: float = None):
         """
         Args:
             template_path: 模板图片路径
             frame_size: 当前帧尺寸 (width, height)，用于动态换算 ROI
             debug: 是否启用调试日志
+            match_threshold: 模板匹配阈值（默认 0.80），可动态调整
         """
         self.debug = debug
         self.logger = get_logger(debug=debug)
         self.frame_size = frame_size
+        self.match_threshold = match_threshold if match_threshold is not None else MATCH_THRESHOLD
 
         if not os.path.exists(template_path):
             raise FileNotFoundError(f"模板图不存在: {template_path}")
@@ -136,12 +138,12 @@ class CaptureModeDetector:
         )
         _, max_val, _, _ = cv2.minMaxLoc(result)
 
-        is_match = max_val >= MATCH_THRESHOLD
+        is_match = max_val >= self.match_threshold
 
         if self.debug:
             self.logger.debug_msg(
                 f"捕捉模式匹配: confidence={max_val:.4f} "
-                f"(阈值 {MATCH_THRESHOLD}) → {'是' if is_match else '否'}"
+                f"(阈值 {self.match_threshold}) → {'是' if is_match else '否'}"
             )
 
         return is_match, float(max_val)

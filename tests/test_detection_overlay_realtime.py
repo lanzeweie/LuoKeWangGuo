@@ -36,6 +36,7 @@ def main():
     parser.add_argument("--fps", type=int, default=30, help="屏幕捕获帧率")
     parser.add_argument("--device", default="cuda", help="推理设备")
     parser.add_argument("--confidence", type=float, default=0.5, help="置信度阈值")
+    parser.add_argument("--nms-iou", type=float, default=0.7, help="NMS IoU 阈值（合并重叠框）")
     parser.add_argument("--debug", action="store_true", help="调试模式")
     parser.add_argument("--detect-interval", type=int, default=3, help="跳帧间隔(每N帧检测一次)")
     parser.add_argument("--lerp-alpha", type=float, default=0.3, help="插值平滑系数")
@@ -55,6 +56,8 @@ def main():
     print(f"  候选确认: {args.confirm_frames}")
     print(f"  丢失容错: {args.lost_tolerance}")
     print(f"  IoU 阈值: {args.iou_threshold}")
+    print(f"  NMS IoU: {args.nms_iou}")
+    print(f"  打框显示: {'否' if args.no_draw else '是'}")
     print("=" * 60)
 
     # 1. 窗口管理
@@ -90,6 +93,7 @@ def main():
         model_path=args.model,
         device=args.device,
         confidence_threshold=args.confidence,
+        iou_threshold=args.nms_iou,
         debug=args.debug,
     )
     if not detector.load_model():
@@ -113,17 +117,24 @@ def main():
     )
 
     # 5. 分层覆盖窗口
-    logger.info("[5/5] 创建分层覆盖窗口...")
-    layered_overlay = LayeredOverlay(
-        x=left, y=top,
-        width=game_width, height=game_height,
-        debug=args.debug,
-    )
-    if not layered_overlay.create_window():
-        logger.error("分层窗口创建失败")
-        sys.exit(1)
+    layered_overlay = None
+    if not args.no_draw:
+        logger.info("[5/5] 创建分层覆盖窗口...")
+        layered_overlay = LayeredOverlay(
+            x=left, y=top,
+            width=game_width, height=game_height,
+            debug=args.debug,
+        )
+        if not layered_overlay.create_window():
+            logger.error("分层窗口创建失败")
+            sys.exit(1)
+    else:
+        logger.info("[5/5] 跳过打框（--no-draw）")
 
-    logger.success("就绪！观察分层窗口中的检测框，按 Ctrl+C 退出\n")
+    if args.no_draw:
+        logger.success("就绪！按 Ctrl+C 退出（无打框模式）\n")
+    else:
+        logger.success("就绪！观察分层窗口中的检测框，按 Ctrl+C 退出\n")
 
     # 先测试一下检测器
     test_frame = cap.capture()
@@ -137,6 +148,7 @@ def main():
 
     capture_interval = 1.0 / args.fps
     frame_count = 0
+    printed_ids = set()  # 追踪已打印的目标 ID
 
     try:
         with cap:
@@ -156,38 +168,52 @@ def main():
 
                 # 打印检测信息
                 if frame_count % 30 == 0 or targets:
-                    detect_mark = "YOLO" if overlay_det.is_detect_frame else "LERP"
-                    active_count = len([t for t in targets if t.state == "active"])
-                    lost_count = len([t for t in targets if t.state == "lost"])
-                    cand_count = len([t for t in targets if t.state == "candidate"])
-                    # 打印每个目标的详细信息
-                    target_info = []
-                    for t in targets:
-                        target_info.append(f"ID{t.track_id}({t.state}):({t.bbox[0]:.0f},{t.bbox[1]:.0f})")
-                    logger.info(
-                        f"帧{frame_count:4d} | {detect_mark} | "
-                        f"总目标: {len(targets)} | "
-                        f"A:{active_count} L:{lost_count} C:{cand_count}"
-                    )
-                    if targets and overlay_det.is_detect_frame:
-                        logger.info(f"  -> {', '.join(target_info)}")
+                    if args.debug:
+                        # Debug 模式：打印详细信息
+                        detect_mark = "YOLO" if overlay_det.is_detect_frame else "LERP"
+                        active_count = len([t for t in targets if t.state == "active"])
+                        lost_count = len([t for t in targets if t.state == "lost"])
+                        cand_count = len([t for t in targets if t.state == "candidate"])
+                        target_info = []
+                        for t in targets:
+                            target_info.append(f"ID{t.track_id}({t.state}):({t.bbox[0]:.0f},{t.bbox[1]:.0f})")
+                        logger.info(
+                            f"帧{frame_count:4d} | {detect_mark} | "
+                            f"总目标: {len(targets)} | "
+                            f"A:{active_count} L:{lost_count} C:{cand_count}"
+                        )
+                        if targets and overlay_det.is_detect_frame:
+                            logger.info(f"  -> {', '.join(target_info)}")
+                    else:
+                        # 非 debug 模式：只打印新出现的 ID
+                        if targets and overlay_det.is_detect_frame:
+                            new_ids = set()
+                            for t in targets:
+                                if t.track_id not in printed_ids:
+                                    printed_ids.add(t.track_id)
+                                    new_ids.add(t.track_id)
+                            if new_ids:
+                                active_ids = [str(t.track_id) for t in targets if t.track_id in new_ids and t.state == "active"]
+                                if active_ids:
+                                    print(f"[{frame_count}] 检测到: {', '.join(active_ids)}")
 
                 # 提取需要绘框的目标（包括 candidate）
                 draw_targets = [t for t in targets if t.state in ("active", "lost", "candidate")]
 
-                # 绘制
-                if draw_targets:
-                    # 转换为 LayeredOverlay 需要的 DetectionResult 格式
-                    from src.core.capabilities.detection import DetectionResult
-                    det_results = []
-                    for t in draw_targets:
-                        x1, y1, x2, y2 = map(int, t.bbox)
-                        det = DetectionResult(x1, y1, x2, y2, t.confidence, t.class_id)
-                        det_results.append(det)
-                    layered_overlay.draw(det_results)
-                else:
-                    # 无目标时传入空列表（自动清屏）
-                    layered_overlay.draw([])
+                # 绘制（no_draw 模式下跳过）
+                if not args.no_draw:
+                    if draw_targets:
+                        # 转换为 LayeredOverlay 需要的 DetectionResult 格式
+                        from src.core.capabilities.detection import DetectionResult
+                        det_results = []
+                        for t in draw_targets:
+                            x1, y1, x2, y2 = map(int, t.bbox)
+                            det = DetectionResult(x1, y1, x2, y2, t.confidence, t.class_id)
+                            det_results.append(det)
+                        layered_overlay.draw(det_results)
+                    else:
+                        # 无目标时传入空列表（自动清屏）
+                        layered_overlay.draw([])
 
                 elapsed = time.time() - loop_start
                 if elapsed < capture_interval:
@@ -196,7 +222,8 @@ def main():
     except KeyboardInterrupt:
         logger.info("\n退出")
     finally:
-        layered_overlay.destroy()
+        if layered_overlay is not None:
+            layered_overlay.destroy()
         detector.unload_model()
 
 

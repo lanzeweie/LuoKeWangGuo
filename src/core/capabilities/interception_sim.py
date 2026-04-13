@@ -196,20 +196,6 @@ class InterceptionSimulator:
                 "3. 驱动服务已启动"
             )
 
-        # 设置过滤器 - 这是关键！必须设置过滤器才能拦截输入
-        # INTERCEPTION_FILTER_KEY_ALL = 0xFFFF
-        # INTERCEPTION_FILTER_MOUSE_ALL = 0xFFFF
-        lib.interception_set_filter(
-            self._context,
-            lib.interception_is_keyboard,
-            0xFFFF  # INTERCEPTION_FILTER_KEY_ALL
-        )
-        lib.interception_set_filter(
-            self._context,
-            lib.interception_is_mouse,
-            0xFFFF  # INTERCEPTION_FILTER_MOUSE_ALL
-        )
-
         # 查找键盘设备
         for device in range(1, 21):
             if lib.interception_is_keyboard(device):

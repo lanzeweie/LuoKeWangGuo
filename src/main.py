@@ -20,6 +20,7 @@ from src.core import (
 )
 from src.core.capabilities.target_scoring import TargetScorer
 from src.core.capabilities.target_verifier import TargetVerifier
+from src.detectors.config_loader import load_mask_regions, filter_masked_detections
 from src.logger import get_logger
 
 
@@ -60,6 +61,7 @@ def run_live_detection(args):
         model_path=args.model_path,
         device=args.device,
         confidence_threshold=args.confidence_threshold,
+        iou_threshold=args.nms_iou_threshold,
         debug=args.debug,
     )
     if not detector.load_model():
@@ -100,6 +102,13 @@ def run_live_detection(args):
         debug=args.debug,
     )
 
+    # 遮蔽区域
+    mask_regions = load_mask_regions()
+    if mask_regions:
+        logger.info(f"已加载 {len(mask_regions)} 个遮蔽区域")
+    else:
+        logger.info("未配置遮蔽区域")
+
     state_machine = StateMachine(
         verifier=verifier,
         debug=args.debug,
@@ -138,6 +147,13 @@ def run_live_detection(args):
                 now = time.time()
                 if (now - last_detect_time) >= detect_interval:
                     detections = detector.detect(frame, target_class=args.target_class)
+
+                    # 过滤遮蔽区域内的检测结果
+                    if mask_regions:
+                        detections = filter_masked_detections(
+                            detections, mask_regions, frame.shape[1], frame.shape[0]
+                        )
+
                     last_detect_time = now
 
                     # ── 评分与排序 ──
