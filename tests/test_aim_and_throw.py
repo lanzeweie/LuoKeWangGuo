@@ -41,7 +41,7 @@ from src.logger import get_logger
 def main():
     # 命令行参数解析
     parser = argparse.ArgumentParser(description="瞄准 + 投掷 实时测试")
-    parser.add_argument("--model", required=True, help="YOLO模型路径")
+    parser.add_argument("--model", help="YOLO模型路径（编辑配置时可选）")
     parser.add_argument("--process-name", default="NRC-Win64-Shipping.exe", help="游戏进程名")
     parser.add_argument("--resolution", default="auto", help="游戏分辨率 (默认auto自动检测)")
     parser.add_argument("--border-offset", type=int, default=0, help="边框裁剪偏移")
@@ -76,7 +76,31 @@ def main():
         default=8.0,
         help="自动检测物理鼠标超时（秒）",
     )
+
+    # 配置相关参数
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="指定配置文件路径",
+    )
+    parser.add_argument(
+        "--edit-config",
+        action="store_true",
+        help="打开配置编辑器（无需其他参数）",
+    )
+
     args = parser.parse_args()
+
+    # 如果是编辑配置，则直接打开编辑器
+    if args.edit_config:
+        from src.tools.aim_config_editor import main as edit_main
+        edit_main()
+        sys.exit(0)
+
+    # 检查必需的model参数
+    if not args.model:
+        parser.error("必须提供 --model 参数（除非使用 --edit-config）")
 
     # 解析分辨率 (auto 则从窗口动态获取)
     if args.resolution == "auto":
@@ -212,8 +236,23 @@ def main():
         center_offset_y=args.center_offset_y,
     )
 
-    # 7. 瞄准投掷器
-    logger.info("[6/7] 初始化输入模拟（Interception 驱动）...")
+    # 7. 加载瞄准配置
+    logger.info("[6/7] 加载瞄准配置...")
+    from src.config.aim_config import AimConfig
+
+    # 加载配置文件，如果不存在则使用默认配置
+    aim_config = AimConfig.from_file(args.config)
+
+    # 命令行参数可以覆盖配置文件
+    if args.debug:
+        aim_config.debug = True
+
+    logger.info("瞄准配置参数:")
+    for key, value in aim_config.to_dict().items():
+        logger.info(f"  {key}: {value}")
+
+    # 8. 瞄准投掷器
+    logger.info("[7/7] 初始化输入模拟（Interception 驱动）...")
     if not INTERCEPTION_AVAILABLE:
         logger.error("Interception 驱动不可用")
         logger.error("请运行: pip install interception")
@@ -232,10 +271,10 @@ def main():
         except Exception as e:
             logger.warning(f"自动检测物理鼠标失败，将沿用当前默认设备: {e}")
 
-    aim_throw = AimAndThrow(send_input=send_input, debug=args.debug)
+    aim_throw = AimAndThrow(send_input=send_input, config=aim_config)
 
-    # 8. 分层覆盖窗口
-    logger.info("[7/7] 创建分层覆盖窗口...")
+    # 9. 分层覆盖窗口
+    logger.info("[8/8] 创建分层覆盖窗口...")
     overlay = LayeredOverlay(
         x=left, y=top,
         width=width, height=height,
@@ -263,6 +302,7 @@ def main():
     throw_lock = Lock()  # 保护线程共享变量的锁
     last_capture_state = False       # 上一次捕捉状态
     first_frame_logged = False        # 首帧是否已记录
+    last_skip_warning_time = 0       # 上次警告时间（限制输出频率）
 
     try:
         with cap:
@@ -302,6 +342,13 @@ def main():
                     is_capture_mode = True
                     throw_executed_this_cycle = False  # 重置投掷标志
 
+                # 【新增】检测捕捉状态下降沿（用户离开捕捉界面）
+                if not capture_detected and last_capture_state and is_capture_mode:
+                    logger.info("【检测到捕捉状态结束】用户离开捕捉界面，重置状态...")
+                    is_capture_mode = False
+                    throw_executed_this_cycle = False  # 重置投掷标志
+                    # 如果有线程在运行，不强制停止（让它自然完成）
+
                 last_capture_state = capture_detected
 
                 # ── DetectionOverlay 更新（跳帧/跟踪/插值） ──
@@ -328,13 +375,17 @@ def main():
                 # ── 自动瞄准 + 投掷执行（独立线程，不阻塞主循环） ──
                 # 触发条件：捕捉模式激活 + 有活跃目标 + 本次周期未执行 + 没有线程在运行
                 if is_capture_mode and not throw_executed_this_cycle and not has_target:
-                    logger.warning(
-                        f"[瞄准跳过] is_capture_mode={is_capture_mode}, "
-                        f"has_target={has_target}(active={len(active)}), "
-                        f"tracked总数={len(tracked)}, "
-                        f"candidate={len([t for t in tracked if t.state=='candidate'])}, "
-                        f"lost={len([t for t in tracked if t.state=='lost'])}"
-                    )
+                    # 限制警告输出频率，避免刷屏（每秒最多输出一次）
+                    current_time = time.time()
+                    if current_time - last_skip_warning_time > 1.0:
+                        logger.warning(
+                            f"[瞄准跳过] is_capture_mode={is_capture_mode}, "
+                            f"has_target={has_target}(active={len(active)}), "
+                            f"tracked总数={len(tracked)}, "
+                            f"candidate={len([t for t in tracked if t.state=='candidate'])}, "
+                            f"lost={len([t for t in tracked if t.state=='lost'])}"
+                        )
+                        last_skip_warning_time = current_time
                 if is_capture_mode and has_target and not throw_executed_this_cycle and throw_thread is None:
                     # 对活跃目标进行评分排序
                     scored = scorer.score_detections([

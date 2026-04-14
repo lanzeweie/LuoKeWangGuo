@@ -13,7 +13,9 @@
 src/
 ├── main.py                          # 主入口 — 组装 AppContext + 启动循环
 ├── logger.py                        # 日志
-├── config.py                        # 配置管理
+├── config/                          # 配置管理
+│   ├── __init__.py                  # 配置包
+│   └── aim_config.py               # 瞄准配置
 │
 ├── core/                            # 能力层 — 底层工具库
 │   ├── context.py                  # AppContext — 黑板模式，共享运行时上下文
@@ -160,6 +162,11 @@ uv run python -m src.tools.template_captor --battle
 # 遮蔽区域编辑器（框选 YOLO 检测时忽略的区域）
 uv run python -m src.tools.mask_region_editor
 
+# 瞄准配置编辑器（调整瞄准参数）
+uv run python tests/test_aim_and_throw.py --edit-config
+# 或直接运行编辑器
+uv run python -m src.tools.aim_config_editor
+
 # Interception 环境检查（必须先运行此检查）
 uv run python -m src.tools.check_interception
 
@@ -186,6 +193,45 @@ uv run python tests/test_mode_detection.py       # CV 模式检测测试
 4. **暴力捕捉** — 不判断捕捉成功/失败，精灵消失即结束
 5. **禁止硬编码坐标** — 所有坐标通过 `RelativeCoordinatePicker` 获取，存为相对坐标
 
+## 瞄准配置
+
+瞄准行为可以通过配置文件 `config/aim_config.json` 进行调整：
+
+### 主要参数说明
+
+| 参数 | 说明 | 默认值 | 调整建议 |
+|------|------|--------|----------|
+| `aim_duration` | 瞄准持续时间（秒） | 3.0 | 精灵反应慢时可增加 |
+| `aim_tolerance` | 瞄准容忍度（像素） | 40 | 值越大越容易"命中" |
+| `mouse_to_view_ratio` | 鼠标视角比例 | 1.0 | 根据游戏灵敏度调整 |
+| `p_factor` | P控制因子（0-1） | 0.4 | 值越小越平滑，避免抖动 |
+| `check_interval` | 检查间隔（秒） | 0.05 | 值越小反应越快，但占用更多CPU |
+| `max_move_per_check` | 最大单次移动（像素） | 30 | 限制单次移动量避免过冲 |
+| `use_compensation` | 启用距离补偿 | true | 近距离可关闭，远距离建议开启 |
+| `use_prediction` | 启用动量预测 | true | 移动目标建议开启 |
+| `use_smoothing` | 启用平滑滤波 | true | 减少检测抖动 |
+| `fine_tune_enabled` | 启用微调 | true | 增加拟人化 |
+
+### 使用配置编辑器
+
+```bash
+# 方式1：通过测试脚本启动配置编辑器
+uv run python tests/test_aim_and_throw.py --edit-config
+
+# 方式2：直接运行配置编辑器
+uv run python -m src.tools.aim_config_editor
+```
+
+配置编辑器提供交互式界面，可以实时调整各项参数并保存。
+
+### 配置文件位置
+
+- 默认配置文件：`config/aim_config.json`
+- 可以通过 `--config` 参数指定其他配置文件：
+  ```bash
+  uv run python tests/test_aim_and_throw.py --config my_config.json
+  ```
+
 ## 开发进度
 
 | 阶段 | 状态 | 详情 |
@@ -209,4 +255,6 @@ uv run python tests/test_mode_detection.py       # CV 模式检测测试
 | 项目上下文 | `.claude/CLAUDE.md` |
 | CV 模板目录 | `data/templates/` |
 | 统一配置文件 | `data/templates/templates_config.json` |
+| 瞄准配置文件 | `config/aim_config.json` |
 | 遮蔽区域编辑器 | `src/tools/mask_region_editor.py` |
+| 瞄准配置编辑器 | `src/tools/aim_config_editor.py` |

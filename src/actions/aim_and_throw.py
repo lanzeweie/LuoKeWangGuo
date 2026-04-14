@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import random
 import time
-from typing import Optional
+from typing import Optional, Callable
 
 from src.core.capabilities.target_scoring import TargetScore
 from src.core.capabilities.interception_sim import InterceptionSimulator
@@ -23,12 +23,16 @@ from src.core.capabilities.aim_algorithms import (
     SmoothFilter,
 )
 from src.logger import get_logger
+from src.config.aim_config import AimConfig
 
 
 class AimAndThrow:
-    """瞄准目标并执行精灵球投掷。"""
+    """瞄准目标并执行精灵球投掷。
 
-    # 瞄准参数
+    可以通过 AimConfig 配置各种瞄准参数。
+    """
+
+    # 瞄准参数（默认值，会被配置覆盖）
     AIM_TOLERANCE = 40  # 目标中心与准心最大允许偏差（像素）
     AIM_DURATION = 3.0  # 瞄准持续时间（秒）
     MOUSE_TO_VIEW_RATIO = 1.0  # 鼠标移动与视角移动比例 (1:1)
@@ -36,35 +40,33 @@ class AimAndThrow:
     def __init__(
         self,
         send_input: InterceptionSimulator,
-        debug: bool = False,
-        use_compensation: bool = True,
-        use_prediction: bool = True,
-        use_smoothing: bool = True,
-        smoothing_alpha: float = 0.3,
-        flight_time: float = 0.5,
+        config: Optional[AimConfig] = None,
     ) -> None:
         """
         Args:
             send_input: InterceptionSimulator 实例（已注入）
-            debug: 是否启用调试日志
-            use_compensation: 是否启用距离补偿
-            use_prediction: 是否启用动量预测
-            use_smoothing: 是否启用平滑滤波
-            smoothing_alpha: 平滑系数（越小越平滑）
-            flight_time: 精灵球预估飞行时间（秒）
+            config: AimConfig 配置实例，如果为 None 则使用默认配置
         """
+        # 加载配置
+        self.config = config or AimConfig()
+
+        # 应用配置到类属性（保持向后兼容）
+        self.AIM_TOLERANCE = self.config.aim_tolerance
+        self.AIM_DURATION = self.config.aim_duration
+        self.MOUSE_TO_VIEW_RATIO = self.config.mouse_to_view_ratio
+
         self._send_input = send_input
-        self.debug = debug
-        self._log = get_logger(debug=debug)
+        self.debug = self.config.debug
+        self._log = get_logger(debug=self.debug)
 
         # 算法开关
-        self._use_compensation = use_compensation
-        self._use_prediction = use_prediction
-        self._use_smoothing = use_smoothing
-        self._flight_time = flight_time
+        self._use_compensation = self.config.use_compensation
+        self._use_prediction = self.config.use_prediction
+        self._use_smoothing = self.config.use_smoothing
+        self._flight_time = self.config.flight_time
 
         # 算法实例
-        self._smooth_filter = SmoothFilter(alpha=smoothing_alpha)
+        self._smooth_filter = SmoothFilter(alpha=self.config.smoothing_alpha)
         self._movement_predictor = MovementPredictor()
 
     def reset_algorithms(self) -> None:
@@ -185,8 +187,8 @@ class AimAndThrow:
         target: TargetScore,
         screen_width: int = 1280,
         screen_height: int = 720,
-        fine_tune_ms: int = 500,
-        get_target_func: Optional[callable] = None,
+        fine_tune_ms: Optional[int] = None,  # 已废弃，使用 config.fine_tune_duration
+        get_target_func: Optional[Callable] = None,
     ) -> bool:
         """
         瞄准目标中心并执行投掷。
@@ -244,7 +246,7 @@ class AimAndThrow:
             aim_x, aim_y, screen_width, screen_height
         )
 
-        if abs(offset_x) > 10 or abs(offset_y) > 10:
+        if abs(offset_x) > self.config.initial_move_threshold or abs(offset_y) > self.config.initial_move_threshold:
             try:
                 # 使用相对移动进行快速定位
                 self._send_input.mouse_move(offset_x, offset_y)
@@ -258,7 +260,7 @@ class AimAndThrow:
                 return False
 
         # 短暂等待让视角稳定
-        time.sleep(random.uniform(0.05, 0.10))
+        time.sleep(random.uniform(self.config.initial_wait_min, self.config.initial_wait_max))
 
         # ── Step 2: 按住左键进入投掷瞄准状态 ──
 
@@ -277,10 +279,10 @@ class AimAndThrow:
         aim_start_time = time.time()
         aim_end_time = aim_start_time + self.AIM_DURATION
 
-        # 瞄准循环参数
-        check_interval = 0.050
-        max_move_per_check = 30
-        p_factor = 0.4  # 【新增】P控制因子，每次只移动偏差的 40%，极大地缓解画面震荡
+        # 瞄准循环参数（从配置加载）
+        check_interval = self.config.check_interval
+        max_move_per_check = self.config.max_move_per_check
+        p_factor = self.config.p_factor
 
         # 初始化当前瞄准坐标
         current_aim_x, current_aim_y = aim_x, aim_y
@@ -326,7 +328,7 @@ class AimAndThrow:
                 move_y = max(-max_move_per_check, min(max_move_per_check, move_y))
 
                 # 应用调整
-                if abs(move_x) > 1 or abs(move_y) > 1:
+                if abs(move_x) > self.config.log_move_threshold or abs(move_y) > self.config.log_move_threshold:
                     try:
                         self._send_input.mouse_move(int(move_x), int(move_y))
                     except Exception as exc:
@@ -340,14 +342,14 @@ class AimAndThrow:
 
         # ── Step 4: 微调（拟人化） ──
 
-        if fine_tune_ms > 0:
-            hold_duration = max(300, min(fine_tune_ms, 600)) / 1000.0  # clamp 300-600ms
+        if self.config.fine_tune_enabled:
+            hold_duration = self.config.fine_tune_duration / 1000.0  # 转换为秒
             time.sleep(hold_duration * 0.5)
 
-            # 小幅微调 ±5px
+            # 小幅微调
             try:
-                micro_x = random.randint(-5, 5)
-                micro_y = random.randint(-5, 5)
+                micro_x = random.randint(-self.config.micro_move_range, self.config.micro_move_range)
+                micro_y = random.randint(-self.config.micro_move_range, self.config.micro_move_range)
                 if micro_x != 0 or micro_y != 0:
                     self._send_input.mouse_move(micro_x, micro_y)
                     if self.debug:
