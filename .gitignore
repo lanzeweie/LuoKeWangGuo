@@ -51,9 +51,6 @@ _bmad-output/
 _/
 memory/
 
-# 数据目录（YOLO 训练数据）
-data/
-
 # 日志
 *.log
 logs/
@@ -74,3 +71,5 @@ _bmad/
 runs/
 
 data/labels.cache
+data/images
+data/labels
