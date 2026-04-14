@@ -89,15 +89,14 @@ class AimAndThrow:
 
         Returns:
             (offset_x, offset_y) - 鼠标需要移动的偏移量
-           正值表示需要向右/下移动鼠标（让目标往左/上移）
+            正值表示需要向右/下移动鼠标（让视角向右/下转动）
         """
         center_x = screen_width // 2
         center_y = screen_height // 2
 
-        # 计算偏差：目标在准心右/下，需要向左/上移动鼠标
-        # 但游戏控制可能是反向的，这里假设正向（向右移鼠标，视角向右）
-        offset_x = (center_x - target_x) * self.MOUSE_TO_VIEW_RATIO
-        offset_y = (center_y - target_y) * self.MOUSE_TO_VIEW_RATIO
+        # 【核心修复】：目标在准心右侧 (target_x > center_x)，鼠标需要向右移动 (正值)
+        offset_x = (target_x - center_x) * self.MOUSE_TO_VIEW_RATIO
+        offset_y = (target_y - center_y) * self.MOUSE_TO_VIEW_RATIO
 
         return int(offset_x), int(offset_y)
 
@@ -279,49 +278,61 @@ class AimAndThrow:
         aim_end_time = aim_start_time + self.AIM_DURATION
 
         # 瞄准循环参数
-        check_interval = 0.050  # 每 50ms 检查一次
-        max_move_per_check = 30  # 每次检查最大移动像素数（避免过快）
+        check_interval = 0.050
+        max_move_per_check = 30
+        p_factor = 0.4  # 【新增】P控制因子，每次只移动偏差的 40%，极大地缓解画面震荡
+
+        # 初始化当前瞄准坐标
+        current_aim_x, current_aim_y = aim_x, aim_y
 
         while time.time() < aim_end_time:
-            # 获取实时目标位置
+            # 获取实时目标位置 (现在需要支持返回 bbox_area 以维持下坠补偿)
             if get_target_func is not None:
                 current_target = get_target_func()
                 if current_target is None:
-                    # 目标丢失，继续使用最后已知位置
                     if self.debug:
                         self._log.debug_msg("aim_and_throw: 实时目标丢失，使用最后位置")
-                    continue
-                cx, cy = current_target
+                else:
+                    # 兼容不同长度的返回值 (cx, cy) 或 (cx, cy, bbox_area)
+                    cx = current_target[0]
+                    cy = current_target[1]
+                    current_area = current_target[2] if len(current_target) > 2 else target.bbox_area
 
-            # 检查目标是否在准心范围内
-            if self._is_aimed(cx, cy, screen_width, screen_height):
-                # 已瞄准，无需调整
-                if self.debug and random.random() < 0.05:  # 偶尔记录
-                    self._log.debug_msg(f"aim_and_throw: 目标已瞄准 ({cx},{cy})")
+                    # 【核心修复】：在循环中必须重新应用算法，否则下坠补偿会被重置！
+                    current_aim_x, current_aim_y = self._apply_aim_algorithms(
+                        cx=cx,
+                        cy=cy,
+                        screen_width=screen_width,
+                        screen_height=screen_height,
+                        bbox_area=current_area,
+                    )
+
+            # 检查补偿后的目标是否在准心范围内
+            if self._is_aimed(current_aim_x, current_aim_y, screen_width, screen_height):
+                if self.debug and random.random() < 0.05:
+                    self._log.debug_msg(f"aim_and_throw: 目标已瞄准 ({current_aim_x},{current_aim_y})")
             else:
                 # 计算需要的调整量
                 offset_x, offset_y = self._get_aim_offset(
-                    cx, cy, screen_width, screen_height
+                    current_aim_x, current_aim_y, screen_width, screen_height
                 )
 
+                # 【核心修复】：引入 P 控制，平滑逼近，防止因为灵敏度不准确导致的过冲抖动
+                move_x = offset_x * p_factor
+                move_y = offset_y * p_factor
+
                 # 限制单次移动量
-                offset_x = max(-max_move_per_check, min(max_move_per_check, offset_x))
-                offset_y = max(-max_move_per_check, min(max_move_per_check, offset_y))
+                move_x = max(-max_move_per_check, min(max_move_per_check, move_x))
+                move_y = max(-max_move_per_check, min(max_move_per_check, move_y))
 
                 # 应用调整
-                if abs(offset_x) > 2 or abs(offset_y) > 2:
+                if abs(move_x) > 1 or abs(move_y) > 1:
                     try:
-                        self._send_input.mouse_move(offset_x, offset_y)
-                        if self.debug:
-                            self._log.debug_msg(
-                                f"aim_and_throw: 调整 offset=({offset_x},{offset_y}) "
-                                f"目标=({cx},{cy})"
-                            )
+                        self._send_input.mouse_move(int(move_x), int(move_y))
                     except Exception as exc:
                         if self.debug:
                             self._log.debug_msg(f"aim_and_throw: 调整失败: {exc}")
 
-            # 等待下一次检查
             time.sleep(check_interval)
 
         if self.debug:
@@ -542,14 +553,14 @@ def test_aim_and_throw() -> bool:
 
     print("\n[Test 5] _get_aim_offset calculates correctly...")
     thrower6 = AimAndThrow(send_input=_MockSendInput(), debug=False)
-    # 目标在中心右下，需要向左上移动鼠标
+    # 目标在中心右下，鼠标需要向右下移动
     ox, oy = thrower6._get_aim_offset(700, 400, 1280, 720)
-    check("center (640,360), target (700,400), offset x negative", ox < 0)
-    check("center (640,360), target (700,400), offset y negative", oy < 0)
-    # 目标在中心左上，需要向右下移动鼠标
+    check("center (640,360), target (700,400), offset x positive", ox > 0)
+    check("center (640,360), target (700,400), offset y positive", oy > 0)
+    # 目标在中心左上，鼠标需要向左上移动
     ox2, oy2 = thrower6._get_aim_offset(500, 300, 1280, 720)
-    check("center (640,360), target (500,300), offset x positive", ox2 > 0)
-    check("center (640,360), target (500,300), offset y positive", oy2 > 0)
+    check("center (640,360), target (500,300), offset x negative", ox2 < 0)
+    check("center (640,360), target (500,300), offset y negative", oy2 < 0)
 
     print("\n[Test 6] _is_aimed checks tolerance correctly...")
     thrower7 = AimAndThrow(send_input=_MockSendInput(), debug=False)

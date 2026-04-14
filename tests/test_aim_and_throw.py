@@ -359,8 +359,8 @@ def main():
                     time.sleep(0.1)
 
                     # 定义实时目标获取函数（用于持续瞄准3秒期间）
-                    def get_realtime_target() -> Optional[Tuple[int, int]]:
-                        """从实时检测中获取当前活跃目标的中心位置"""
+                    def get_realtime_target() -> Optional[Tuple[int, int, float]]:
+                        """从实时检测中获取当前活跃目标的中心位置及面积"""
                         current_frame = cap.capture()
                         if current_frame is None:
                             return None
@@ -375,9 +375,14 @@ def main():
                             return None
 
                         current_target = current_active[0]
-                        cx = int((current_target.bbox[0] + current_target.bbox[2]) / 2)
-                        cy = int((current_target.bbox[1] + current_target.bbox[3]) / 2)
-                        return cx, cy
+
+                        # 解析 BBox
+                        x1, y1, x2, y2 = current_target.bbox
+                        cx = int((x1 + x2) / 2)
+                        cy = int((y1 + y2) / 2)
+                        bbox_area = float((x2 - x1) * (y2 - y1))
+
+                        return cx, cy, bbox_area
 
                     # 定义线程执行的投掷函数
                     def execute_throw():
