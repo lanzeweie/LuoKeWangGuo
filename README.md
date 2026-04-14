@@ -28,7 +28,6 @@ src/
 │       ├── target_scoring.py       # 目标评分
 │       ├── target_verifier.py      # 目标验证（多周期确认）
 │       ├── layered_overlay.py      # DWM 透明覆盖层
-│       ├── gdi_overlay.py          # GDI 覆盖层（备用）
 │       ├── detection_overlay.py    # YOLO 检测覆盖层（跳帧/跟踪/插值/绘框）
 │       └── template_loader.py      # 模板配置加载（类封装）
 │
@@ -56,10 +55,24 @@ src/
 │   └── coordinate_picker.py        # 相对坐标选择器 GUI
 │
 └── tools/                           # 工具模块（GUI / 调试）
-    ├── template_captor.py          # 模板截取工具
-    ├── mask_region_editor.py       # 遮蔽区域编辑器（多次框选，忽略 YOLO 检测区域）
-    ├── annotate_roi.py             # ROI 标注工具
-    └── diagnose_window.py          # 窗口诊断工具
+    ├── template_captor.py           # 模板截取工具
+    ├── mask_region_editor.py        # 遮蔽区域编辑器（多次框选，忽略 YOLO 检测区域）
+    ├── annotate_roi.py              # ROI 标注工具
+    ├── diagnose_window.py           # 窗口诊断工具
+    └── check_interception.py        # Interception 环境检查
+
+tools/                               # 数据准备与训练脚本（根目录）
+    ├── train.py                     # 训练脚本
+    ├── prepare_dataset.py           # 数据集准备
+    ├── extract_frames.py            # 提取视频帧
+    ├── convert_labelme_to_yolo.py   # LabelMe 转 YOLO 格式
+    └── README.md                    # 工具说明
+
+tests/                               # 测试套件
+    ├── test_aim_and_throw.py        # 瞄准投掷集成测试
+    ├── test_detection_overlay_realtime.py  # 检测覆盖层实时测试
+    ├── test_input_auto.py           # 输入自动化测试
+    └── test_mode_detection.py       # CV 模式检测测试
 ```
 
 ### 分层职责
@@ -145,14 +158,18 @@ uv run python -m src.tools.diagnose_window
 uv run python -m src.tools.template_captor --capture
 uv run python -m src.tools.template_captor --battle
 
-# Interception 单元测试（算法测试）
-uv run python tests/test_interception_sim.py
-
 # 遮蔽区域编辑器（框选 YOLO 检测时忽略的区域）
 uv run python -m src.tools.mask_region_editor
 
-# 一键式输入测试（自动测试鼠标+键盘）
-uv run python -m src.tools.test_input_auto
+# Interception 环境检查（必须先运行此检查）
+uv run python -m src.tools.check_interception
+
+# 测试套件
+uv run python -m pytest tests/                  # 运行全部测试
+uv run python tests/test_aim_and_throw.py        # 瞄准投掷集成测试
+uv run python tests/test_detection_overlay_realtime.py  # 检测覆盖层实时测试
+uv run python tests/test_input_auto.py           # 输入自动化测试
+uv run python tests/test_mode_detection.py       # CV 模式检测测试
 
 # SendInput 测试（Legacy）
 uv run python -m src.core.capabilities.sendinput_sim --real-test

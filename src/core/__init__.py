@@ -17,7 +17,6 @@ from .capabilities.window_mgr import WindowManager
 from .capabilities.interception_sim import InterceptionSimulator
 from .capabilities.sendinput_sim import SendInputSimulator  # Legacy
 from .capabilities.layered_overlay import LayeredOverlay
-from .capabilities.gdi_overlay import GDIOverlay
 from .capabilities.target_scoring import TargetScorer, TargetScore
 from .capabilities.target_verifier import TargetVerifier
 from .capabilities.template_loader import TemplateLoader
@@ -36,7 +35,6 @@ __all__ = [
     "InterceptionSimulator",
     "SendInputSimulator",  # Legacy
     "LayeredOverlay",
-    "GDIOverlay",
     "CaptureModeDetector",
     "BattleModeDetector",
     "TargetScorer",
