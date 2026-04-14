@@ -19,7 +19,9 @@ class Action(Enum):
     """
 
     NO_OP = auto()          # 什么都不做
-    SEARCH_PAN = auto()     # 平移搜索（鼠标微调方向）
+    SEARCH_PAN = auto()     # 平移搜索（兼容旧逻辑，建议迁移到 SEARCH_MOUSE）
+    SEARCH_MOUSE = auto()   # 搜索期鼠标动作（dx/dy/pause）
+    SEARCH_MOVE = auto()    # 搜索期移动动作（direction/duration/look）
     MOVE_WASD = auto()      # WASD 移动（方向 + 时长）
     AIM = auto()            # 瞄准（目标位置）
     THROW = auto()          # 投掷（直接触发）

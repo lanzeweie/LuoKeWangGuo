@@ -1,87 +1,130 @@
 #!/usr/bin/env python3
 """
-搜索策略
-处理画面中没精灵时的小范围平移搜索逻辑
+搜索策略调度器
+将搜索行为升级为多模式调度：
+- Micro Look: 原地小幅随机看
+- Sweep 360: 分段环顾
+- Circular Patrol: 小范围走位 + 回位
 """
 
+import time
 from typing import TYPE_CHECKING
 
 from src.strategies.base import BaseStrategy, Action
+from src.strategies.search_patterns.base_pattern import SearchCommand
+from src.strategies.search_patterns.micro_look import MicroLookPattern
+from src.strategies.search_patterns.sweep_360 import Sweep360Pattern
+from src.strategies.search_patterns.circular_patrol import CircularPatrolPattern
 
 if TYPE_CHECKING:
     from src.core.context import AppContext
 
 
 class SearchStrategy(BaseStrategy):
-    """
-    搜索策略 — 画面中没精灵时，决定屏幕怎么移动来寻找精灵
+    """多模式搜索调度器。"""
 
-    核心逻辑：
-    - 检测到精灵 → 返回 NO_OP，交给验证层
-    - 没精灵 → 返回 SEARCH_PAN（小幅平移鼠标方向）
-    - 每次平移固定角度（如 5°），左右交替
-    """
+    def __init__(
+        self,
+        pan_angle: float = 5.0,
+        max_pan_cycles: int = 6,
+        micro_cycles_before_upgrade: int = 2,
+        legacy_mouse_action: bool = True,
+    ):
+        self.micro_cycles_before_upgrade = micro_cycles_before_upgrade
+        self.legacy_mouse_action = legacy_mouse_action
 
-    def __init__(self, pan_angle: float = 5.0, max_pan_cycles: int = 6):
-        """
-        初始化搜索策略
+        self._patterns = [
+            MicroLookPattern(),
+            Sweep360Pattern(),
+            CircularPatrolPattern(),
+        ]
+        self._pattern_index = 0
+        self._micro_cycle_count = 0
+        self._last_command = SearchCommand(action=Action.NO_OP, params={}, label="init")
+        self._idle_until = 0.0
 
-        Args:
-            pan_angle: 每次平移的角度（度）
-            max_pan_cycles: 最大平移周期数（左右各算一次）
-        """
+        # 兼容旧测试/调用方的字段
         self.pan_angle = pan_angle
         self.max_pan_cycles = max_pan_cycles
         self.current_cycle = 0
-        self.pan_direction = 1  # 1 = 右, -1 = 左
+        self.pan_direction = 1
+        self._legacy_toggle = 1
+
+        self._patterns[self._pattern_index].reset()
 
     def execute(self, ctx: "AppContext") -> Action:
-        """
-        执行搜索策略
-
-        Args:
-            ctx: 应用上下文
-
-        Returns:
-            Action.NO_OP 如果检测到精灵
-            Action.SEARCH_PAN 如果需要平移搜索
-        """
-        # 如果检测到精灵，停止搜索
+        # 检测到目标时立即让权，并重置搜索状态
         if ctx.detections and len(ctx.detections) > 0:
             ctx.logger.debug_msg("检测到精灵，停止搜索")
             self._reset_search_state()
+            self._last_command = SearchCommand(action=Action.NO_OP, params={}, label="target_detected")
             return Action.NO_OP
 
-        # 如果已经平移了太多次，重置并暂停
-        if self.current_cycle >= self.max_pan_cycles:
-            ctx.logger.debug_msg(f"已完成 {self.max_pan_cycles} 个搜索周期，重置")
-            self._reset_search_state()
+        # 巡逻后的 idle 窗口
+        now = time.time()
+        if now < self._idle_until:
+            self._last_command = SearchCommand(
+                action=Action.NO_OP,
+                params={"pause_s": max(0.0, self._idle_until - now)},
+                label="idle",
+            )
             return Action.NO_OP
 
-        # 执行平移搜索
-        ctx.logger.debug_msg(
-            f"执行平移搜索: 方向={'右' if self.pan_direction > 0 else '左'}, "
-            f"角度={self.pan_angle}°, 周期={self.current_cycle}/{self.max_pan_cycles}"
-        )
+        current = self._patterns[self._pattern_index]
+        command = current.next_command(ctx)
 
-        # 切换方向（左右交替）
-        self.pan_direction *= -1
-        if self.pan_direction == 1:
-            # 完成一个完整周期（左 + 右）
-            self.current_cycle += 1
+        if current.is_finished():
+            if current.name == "micro_look":
+                self._micro_cycle_count += 1
+                # micro 模式允许执行两轮再升级 sweep
+                if self._micro_cycle_count < self.micro_cycles_before_upgrade:
+                    current.reset()
+                else:
+                    self._pattern_index = 1
+                    self._patterns[self._pattern_index].reset()
+            elif current.name == "sweep_360":
+                self._pattern_index = 2
+                self._patterns[self._pattern_index].reset()
+            else:
+                # patrol 完成后 idle，再回到 micro
+                pause_s = float(command.params.get("pause_s", 1.2)) if command.action == Action.NO_OP else 1.2
+                self._idle_until = time.time() + min(2.0, max(1.0, pause_s))
+                self._pattern_index = 0
+                self._micro_cycle_count = 0
+                self._patterns[self._pattern_index].reset()
 
-        return Action.SEARCH_PAN
+        self._last_command = command
+
+        action = command.action
+        if action == Action.SEARCH_MOUSE and self.legacy_mouse_action:
+            # 保留旧语义：鼠标搜索可映射为 SEARCH_PAN
+            self._legacy_toggle *= -1
+            self.pan_direction = self._legacy_toggle
+            if self.pan_direction == 1:
+                self.current_cycle += 1
+            return Action.SEARCH_PAN
+
+        return action
 
     def _reset_search_state(self) -> None:
-        """重置搜索状态"""
+        self._pattern_index = 0
+        self._micro_cycle_count = 0
+        self._idle_until = 0.0
+        for pattern in self._patterns:
+            pattern.reset()
+
         self.current_cycle = 0
         self.pan_direction = 1
+        self._legacy_toggle = 1
 
     def get_pan_parameters(self) -> tuple[float, int]:
-        """
-        获取平移参数（供状态机调用）
-
-        Returns:
-            (angle, direction) - 平移角度和方向
-        """
+        # 兼容旧调用方：基于最近一次命令推导左右方向
+        if self._last_command.action in (Action.SEARCH_MOUSE, Action.SEARCH_PAN):
+            dx = int(self._last_command.params.get("dx", 0))
+            if dx != 0:
+                self.pan_direction = 1 if dx > 0 else -1
         return self.pan_angle, self.pan_direction
+
+    def get_search_command(self) -> SearchCommand:
+        """获取最近一次搜索命令参数。"""
+        return self._last_command

@@ -173,6 +173,7 @@ uv run python -m src.tools.check_interception
 # 测试套件
 uv run python -m pytest tests/                  # 运行全部测试
 uv run python tests/test_aim_and_throw.py        # 瞄准投掷集成测试
+uv run python tests/test_search_navigation_realtime.py  # 搜索 + 靠近 实机测试
 uv run python tests/test_detection_overlay_realtime.py  # 检测覆盖层实时测试
 uv run python tests/test_input_auto.py           # 输入自动化测试
 uv run python tests/test_mode_detection.py       # CV 模式检测测试

@@ -57,3 +57,8 @@ def set_logger(logger: Logger):
     """设置全局日志实例"""
     global _logger
     _logger = logger
+
+
+def setup_logging(debug: bool = False):
+    """设置日志系统（为了兼容性）"""
+    get_logger(debug=debug)

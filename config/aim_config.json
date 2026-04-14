@@ -1,1 +1,21 @@
-{"aim_duration": 3.0, "aim_tolerance": 40, "mouse_to_view_ratio": 1.0, "check_interval": 0.05, "max_move_per_check": 30, "p_factor": 0.4, "initial_move_threshold": 10, "initial_wait_min": 0.05, "initial_wait_max": 0.1, "fine_tune_enabled": true, "fine_tune_duration": 500, "micro_move_range": 5, "use_compensation": true, "use_prediction": true, "use_smoothing": true, "smoothing_alpha": 0.3, "flight_time": 0.5, "debug": false, "log_move_threshold": 1}
+{
+  "aim_duration": 2.0,
+  "aim_tolerance": 40,
+  "mouse_to_view_ratio": 1.0,
+  "check_interval": 0.05,
+  "max_move_per_check": 30,
+  "p_factor": 0.4,
+  "initial_move_threshold": 10,
+  "initial_wait_min": 0.05,
+  "initial_wait_max": 0.1,
+  "fine_tune_enabled": true,
+  "fine_tune_duration": 500,
+  "micro_move_range": 5,
+  "use_compensation": true,
+  "use_prediction": true,
+  "use_smoothing": true,
+  "smoothing_alpha": 0.3,
+  "flight_time": 0.5,
+  "debug": false,
+  "log_move_threshold": 1
+}
