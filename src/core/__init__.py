@@ -15,7 +15,6 @@ from .capabilities.screen_cap import ScreenCapture
 from .capabilities.detection import ObjectDetector
 from .capabilities.window_mgr import WindowManager
 from .capabilities.interception_sim import InterceptionSimulator
-from .capabilities.sendinput_sim import SendInputSimulator  # Legacy
 from .capabilities.layered_overlay import LayeredOverlay
 from .capabilities.target_scoring import TargetScorer, TargetScore
 from .capabilities.target_verifier import TargetVerifier
@@ -33,7 +32,6 @@ __all__ = [
     "ObjectDetector",
     "WindowManager",
     "InterceptionSimulator",
-    "SendInputSimulator",  # Legacy
     "LayeredOverlay",
     "CaptureModeDetector",
     "BattleModeDetector",

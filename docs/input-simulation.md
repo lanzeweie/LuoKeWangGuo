@@ -17,7 +17,7 @@
 | 坐标系统 | 绝对屏幕坐标 | 相对位移 |
 | 拟人化 | 无 | 内置多种算法 |
 
-**核心规则**：所有键鼠操作必须优先使用 `InterceptionSimulator`。仅在 Interception 不可用时降级到 `SendInputSimulator`（已标记为 Legacy）。
+**核心规则**：所有键鼠操作必须使用 `InterceptionSimulator`。如果 Interception 驱动不可用，该模块会抛出错误，提示安装驱动。
 
 ---
 
@@ -230,16 +230,6 @@ uv run python -m src.tools.test_input_auto
 ```
 
 自动测试鼠标移动、点击、键盘操作等功能。
-
----
-
-## 降级方案
-
-如果 Interception 驱动不可用，可使用 `SendInputSimulator`（位于 `src/core/capabilities/sendinput_sim.py`），但：
-
-- SendInput 可被部分游戏反作弊检测
-- 不支持拟人化算法
-- 仅作为临时降级方案
 
 ---
 

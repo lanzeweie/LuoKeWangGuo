@@ -51,9 +51,6 @@ uv run python -m src.tools.template_captor --battle
 
 # 模板截取 - 两种模式
 uv run python -m src.tools.template_captor --both
-
-# SendInput 测试
-uv run python -m src.core.capabilities.sendinput_sim --real-test
 ```
 
 ## 代码结构
@@ -65,7 +62,6 @@ uv run python -m src.core.capabilities.sendinput_sim --real-test
 | `detection.py` | YOLO 模型推理 |
 | `screen_cap.py` | DX12 屏幕截图 |
 | `window_mgr.py` | 窗口管理 (客户区坐标) |
-| `sendinput_sim.py` | SendInput 键鼠模拟 |
 | `target_scoring.py` | 目标评分和优先级 |
 | `target_verifier.py` | 多周期目标验证 |
 | `capture_mode_detector.py` | 精灵球界面检测 (CV) |
@@ -139,15 +135,9 @@ uv run python -m src.main --model models/trained/luoke_pet.pt --debug
 uv run python -m src.tools.template_captor --capture
 ```
 
-### 测试输入模拟
-```bash
-# 测试 SendInput 是否正常工作
-uv run python -m src.core.capabilities.sendinput_sim --real-test
-```
-
 ## 常见问题
 
-### Q: SendInput 操作无效
+### Q: Interception 操作无效
 **A**: 确保以管理员身份运行终端
 
 ### Q: 截屏为黑屏

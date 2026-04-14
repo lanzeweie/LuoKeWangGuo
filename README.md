@@ -24,7 +24,6 @@ src/
 │       ├── screen_cap.py           # DX12 截屏
 │       ├── window_mgr.py           # 窗口管理
 │       ├── interception_sim.py     # Interception 驱动级输入（拟人化算法）
-│       ├── sendinput_sim.py        # SendInput 输入（Legacy，已弃用）
 │       ├── target_scoring.py       # 目标评分
 │       ├── target_verifier.py      # 目标验证（多周期确认）
 │       ├── layered_overlay.py      # DWM 透明覆盖层
@@ -170,9 +169,6 @@ uv run python tests/test_aim_and_throw.py        # 瞄准投掷集成测试
 uv run python tests/test_detection_overlay_realtime.py  # 检测覆盖层实时测试
 uv run python tests/test_input_auto.py           # 输入自动化测试
 uv run python tests/test_mode_detection.py       # CV 模式检测测试
-
-# SendInput 测试（Legacy）
-uv run python -m src.core.capabilities.sendinput_sim --real-test
 ```
 
 ## 模型性能
