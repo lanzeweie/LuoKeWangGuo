@@ -18,6 +18,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Optional, Tuple
+from threading import Thread, Lock
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.core import (
@@ -56,6 +57,25 @@ def main():
     parser.add_argument("--capture-threshold", type=float, default=200.0, help="捕捉阈值")
     parser.add_argument("--center-offset-x", type=int, default=0, help="中心X偏移")
     parser.add_argument("--center-offset-y", type=int, default=0, help="中心Y偏移")
+    parser.add_argument(
+        "--auto-detect-mouse",
+        dest="auto_detect_mouse",
+        action="store_true",
+        default=True,
+        help="自动检测真实的物理鼠标设备号（默认开启）",
+    )
+    parser.add_argument(
+        "--no-auto-detect-mouse",
+        dest="auto_detect_mouse",
+        action="store_false",
+        help="禁用自动检测真实物理鼠标",
+    )
+    parser.add_argument(
+        "--auto-detect-timeout",
+        type=float,
+        default=8.0,
+        help="自动检测物理鼠标超时（秒）",
+    )
     args = parser.parse_args()
 
     # 解析分辨率 (auto 则从窗口动态获取)
@@ -201,6 +221,17 @@ def main():
         sys.exit(1)
 
     send_input = InterceptionSimulator(window_mgr=window_mgr, debug=args.debug)
+
+    # 可选：动态捕获真实物理鼠标设备号
+    if args.auto_detect_mouse:
+        try:
+            detected = send_input.auto_detect_hardware_mouse(
+                timeout_seconds=args.auto_detect_timeout
+            )
+            logger.success(f"已自动锁定真实物理鼠标设备号: {detected}")
+        except Exception as e:
+            logger.warning(f"自动检测物理鼠标失败，将沿用当前默认设备: {e}")
+
     aim_throw = AimAndThrow(send_input=send_input, debug=args.debug)
 
     # 8. 分层覆盖窗口
@@ -227,6 +258,9 @@ def main():
     is_capture_mode = False      # 当前是否在捕捉模式
     has_target = False          # 当前是否有目标
     throw_executed_this_cycle = False  # 本次捕捉周期是否已执行投掷
+    throw_thread: Optional[Thread] = None  # 瞄准投掷线程
+    throw_result = None  # 投掷结果（在线程中设置）
+    throw_lock = Lock()  # 保护线程共享变量的锁
     last_capture_state = False       # 上一次捕捉状态
     first_frame_logged = False        # 首帧是否已记录
 
@@ -291,8 +325,8 @@ def main():
                 active = [t for t in tracked if t.state == "active"]
                 has_target = len(active) > 0
 
-                # ── 自动瞄准 + 投掷执行 ──
-                # 触发条件：捕捉模式激活 + 有活跃目标 + 本次周期未执行
+                # ── 自动瞄准 + 投掷执行（独立线程，不阻塞主循环） ──
+                # 触发条件：捕捉模式激活 + 有活跃目标 + 本次周期未执行 + 没有线程在运行
                 if is_capture_mode and not throw_executed_this_cycle and not has_target:
                     logger.warning(
                         f"[瞄准跳过] is_capture_mode={is_capture_mode}, "
@@ -301,7 +335,7 @@ def main():
                         f"candidate={len([t for t in tracked if t.state=='candidate'])}, "
                         f"lost={len([t for t in tracked if t.state=='lost'])}"
                     )
-                if is_capture_mode and has_target and not throw_executed_this_cycle:
+                if is_capture_mode and has_target and not throw_executed_this_cycle and throw_thread is None:
                     # 对活跃目标进行评分排序
                     scored = scorer.score_detections([
                         DetectionResult(
@@ -320,23 +354,19 @@ def main():
                     logger.info(f"  距离状态: {target.distance_state}")
                     logger.info("=" * 50)
 
-                    # 执行瞄准投掷
+                    # 将窗口放到前台
                     window_mgr.bring_to_foreground()
                     time.sleep(0.1)
 
                     # 定义实时目标获取函数（用于持续瞄准3秒期间）
-                    # 注意：在 aim_and_throw 的 3 秒循环期间，会持续调用此函数
                     def get_realtime_target() -> Optional[Tuple[int, int]]:
                         """从实时检测中获取当前活跃目标的中心位置"""
-                        # 获取当前帧（非阻塞）
                         current_frame = cap.capture()
                         if current_frame is None:
                             return None
 
-                        # 更新 DetectionOverlay
                         current_tracked = overlay_det.update(current_frame)
 
-                        # 过滤出活跃状态的目标
                         current_active = [
                             t for t in current_tracked
                             if t.state == "active"
@@ -344,24 +374,33 @@ def main():
                         if not current_active:
                             return None
 
-                        # 返回第一个活跃目标的中心
                         current_target = current_active[0]
                         cx = int((current_target.bbox[0] + current_target.bbox[2]) / 2)
                         cy = int((current_target.bbox[1] + current_target.bbox[3]) / 2)
                         return cx, cy
 
-                    success = aim_throw.aim_and_throw(
-                        target=target,
-                        screen_width=game_width,
-                        screen_height=game_height,
-                        fine_tune_ms=500,
-                        get_target_func=get_realtime_target,
-                    )
+                    # 定义线程执行的投掷函数
+                    def execute_throw():
+                        nonlocal throw_result
+                        try:
+                            success = aim_throw.aim_and_throw(
+                                target=target,
+                                screen_width=game_width,
+                                screen_height=game_height,
+                                fine_tune_ms=500,
+                                get_target_func=get_realtime_target,
+                            )
+                            with throw_lock:
+                                throw_result = success
+                        except Exception as e:
+                            logger.error(f"投掷线程异常: {e}")
+                            with throw_lock:
+                                throw_result = False
 
-                    if success:
-                        logger.success("投掷执行成功")
-                    else:
-                        logger.error("投掷执行失败")
+                    # 启动独立线程执行瞄准投掷（不阻塞主循环）
+                    throw_thread = Thread(target=execute_throw, daemon=True)
+                    throw_thread.start()
+                    logger.info("瞄准投掷线程已启动，主循环继续运行...")
 
                     # 标记本次周期已执行
                     throw_executed_this_cycle = True
@@ -369,6 +408,20 @@ def main():
                     # 重置捕捉模式（等待用户再次按 E）
                     is_capture_mode = False
                     logger.info("捕捉周期结束，等待再次进入捕捉模式...")
+
+                # ── 检查线程是否完成 ──
+                if throw_thread is not None and not throw_thread.is_alive():
+                    with throw_lock:
+                        result = throw_result
+                        throw_result = None
+
+                    if result is True:
+                        logger.success("投掷线程执行成功")
+                    elif result is False:
+                        logger.error("投掷线程执行失败")
+                    else:
+                        logger.warning("投掷线程状态未知")
+                    throw_thread = None
 
                 # 打印检测信息（始终打印，方便调试）
                 detect_mark = "YOLO" if overlay_det.is_detect_frame else "LERP"

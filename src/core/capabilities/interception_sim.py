@@ -196,17 +196,29 @@ class InterceptionSimulator:
                 "3. 驱动服务已启动"
             )
 
-        # 查找键盘设备
+        # 列出所有可用设备
+        all_keyboards = []
+        all_mice = []
         for device in range(1, 21):
             if lib.interception_is_keyboard(device):
-                self._keyboard_device = device
-                break
-
-        # 查找鼠标设备
-        for device in range(1, 21):
+                all_keyboards.append(device)
             if lib.interception_is_mouse(device):
-                self._mouse_device = device
-                break
+                all_mice.append(device)
+
+        if self.debug:
+            self.logger.debug_msg(
+                f"可用设备: keyboards={all_keyboards}, mice={all_mice}"
+            )
+
+        # 选择设备策略
+        # 优先选择第一个实际设备（通常是正确的）
+        # 如有需要，可通过 set_device_override() 覆盖
+        self._keyboard_device = all_keyboards[0] if all_keyboards else None
+        self._mouse_device = all_mice[0] if all_mice else None
+
+        # 存储所有设备供调试
+        self._all_keyboards = all_keyboards
+        self._all_mice = all_mice
 
         if not self._keyboard_device:
             self.logger.warning("未找到键盘设备")
@@ -218,6 +230,148 @@ class InterceptionSimulator:
                 f"Interception 初始化成功: "
                 f"keyboard={self._keyboard_device}, mouse={self._mouse_device}"
             )
+
+    def auto_detect_hardware_mouse(self, timeout_seconds: float = 5.0) -> int:
+        """
+        动态捕获真实的物理鼠标设备号。
+        原理：监听鼠标移动事件，第一个发来信号的设备就是真实的物理鼠标。
+
+        Args:
+            timeout_seconds: 等待用户移动鼠标的超时时间（秒）
+
+        Returns:
+            检测到的物理鼠标设备号
+
+        Raises:
+            RuntimeError: 超时未检测到鼠标移动
+        """
+        if not self._context:
+            raise RuntimeError("Interception 未初始化")
+
+        import threading
+        import queue
+
+        self.logger.info("\n" + "=" * 55)
+        self.logger.warning(
+            f" 嗅探模式启动：请在 {timeout_seconds:.1f} 秒内，用手稍微滑动一下你真实的鼠标..."
+        )
+        self.logger.info("=" * 55)
+
+        result_queue = queue.Queue(maxsize=1)
+
+        def monitor_thread() -> None:
+            try:
+                # 仅拦截鼠标的移动事件
+                lib.interception_set_filter(
+                    self._context,
+                    lib.interception_is_mouse,
+                    lib.INTERCEPTION_FILTER_MOUSE_MOVE,
+                )
+
+                # 阻塞等待硬件中断信号
+                device = lib.interception_wait(self._context)
+
+                # 接收并消费掉这个事件，防止积压
+                stroke = ffi.new("InterceptionMouseStroke *")
+                received = lib.interception_receive(self._context, device, stroke, 1)
+                result_queue.put(device if received > 0 else None)
+            except Exception:
+                result_queue.put(None)
+            finally:
+                # 恢复默认过滤器（否则真实鼠标可能无法正常工作）
+                try:
+                    lib.interception_set_filter(self._context, lib.interception_is_mouse, 0)
+                except Exception:
+                    pass
+
+        monitor = threading.Thread(target=monitor_thread, daemon=True)
+        monitor.start()
+
+        try:
+            device = result_queue.get(timeout=timeout_seconds)
+        except queue.Empty:
+            raise RuntimeError(f"超时：未在 {timeout_seconds} 秒内检测到鼠标移动")
+
+        if device is None:
+            raise RuntimeError("动态捕获失败：未获取到有效鼠标事件")
+
+        self.logger.success(f"动态捕获成功！已锁定真实物理鼠标设备号: [{device}]")
+
+        # 将捕获到的设备号赋值给实例变量
+        self._mouse_device = device
+        return device
+
+    def list_all_devices(self) -> dict:
+        """列出所有可用输入设备（供调试用）。
+
+        Returns:
+            包含 keyboards 和 mice 列表的字典
+        """
+        if not INTERCEPTION_AVAILABLE:
+            return {"keyboards": [], "mice": [], "error": "Interception 未安装"}
+
+        if self._context is None:
+            self._context = lib.interception_create_context()
+
+        keyboards = []
+        mice = []
+        for device in range(1, 21):
+            if lib.interception_is_keyboard(device):
+                keyboards.append(device)
+            if lib.interception_is_mouse(device):
+                mice.append(device)
+
+        return {"keyboards": keyboards, "mice": mice}
+
+    def get_device_info(self, device: int) -> dict:
+        """获取指定设备的硬件信息。
+
+        Args:
+            device: 设备号
+
+        Returns:
+            包含设备信息的字典
+        """
+        if not INTERCEPTION_AVAILABLE:
+            return {"error": "Interception 未安装"}
+
+        # 获取硬件 ID（设备唯一标识）
+        hw_id_buf = ffi.new("unsigned char[256]")
+        hw_id_size = lib.interception_get_hardware_id(self._context, device, hw_id_buf, 256)
+        hw_id = ffi.buffer(hw_id_buf, hw_id_size)[:].hex().upper() if hw_id_size > 0 else "unknown"
+
+        # 尝试判断是硬件还是虚拟设备
+        is_keyboard = lib.interception_is_keyboard(device)
+        is_mouse = lib.interception_is_mouse(device)
+
+        return {
+            "device": device,
+            "hw_id": hw_id,
+            "type": "keyboard" if is_keyboard else ("mouse" if is_mouse else "unknown"),
+        }
+
+    def set_device_override(self, keyboard: int = None, mouse: int = None) -> None:
+        """覆盖默认设备选择（用于调试设备发送错误问题）。
+
+        Args:
+            keyboard: 强制使用的键盘设备号
+            mouse: 强制使用的鼠标设备号
+        """
+        if keyboard is not None:
+            if keyboard not in self._all_keyboards:
+                self.logger.warning(
+                    f"键盘设备 {keyboard} 不在可用列表中: {self._all_keyboards}"
+                )
+            self._keyboard_device = keyboard
+            self.logger.info(f"已覆盖键盘设备: {keyboard}")
+
+        if mouse is not None:
+            if mouse not in self._all_mice:
+                self.logger.warning(
+                    f"鼠标设备 {mouse} 不在可用列表中: {self._all_mice}"
+                )
+            self._mouse_device = mouse
+            self.logger.info(f"已覆盖鼠标设备: {mouse}")
 
     def __del__(self):
         """清理资源。"""
@@ -316,7 +470,9 @@ class InterceptionSimulator:
     # ── 鼠标操作（拟人化） ──────────────────────────────────────────
 
     def mouse_move(self, rel_x: int, rel_y: int) -> int:
-        """相对移动（用于视角控制），分段平滑移动。
+        """相对移动（用于 3D 视角控制）。
+
+        使用 1000Hz 级别的微步长与微秒级延迟，模拟高频鼠标输入。
 
         Args:
             rel_x: 相对 X 偏移
@@ -325,61 +481,57 @@ class InterceptionSimulator:
         Returns:
             发送的事件数
         """
-        if not self._mouse_device:
-            raise RuntimeError("鼠标设备未找到")
+        if not getattr(self, "_mouse_device", None):
+            raise RuntimeError("鼠标设备未就绪，请先执行硬件捕获")
 
-        # 计算总距离
         distance = math.sqrt(rel_x**2 + rel_y**2)
+        if distance == 0:
+            return 0
 
-        # 根据距离决定分段数（距离越大，分段越多）
-        steps = max(10, min(50, int(distance / 10)))
+        # 步长极小（每次 1~3 像素），频率极高
+        max_pixels_per_step = 2
+        steps = max(10, int(distance / max_pixels_per_step))
 
         if self.debug:
             self.logger.debug_msg(
                 f"Mouse: MOVE(rel) ({rel_x:+d},{rel_y:+d}), "
-                f"distance={distance:.1f}px, steps={steps}"
+                f"distance={distance:.1f}px, steps={steps} (1000Hz 模式)"
             )
 
         total_sent = 0
-
-        # 分段发送相对移动
         for i in range(1, steps + 1):
-            # 计算当前段的目标位置
             ratio = i / steps
             target_dx = int(rel_x * ratio)
             target_dy = int(rel_y * ratio)
 
-            # 计算已发送的位移
             prev_ratio = (i - 1) / steps if i > 1 else 0
             prev_dx = int(rel_x * prev_ratio)
             prev_dy = int(rel_y * prev_ratio)
 
-            # 本段位移
             cur_dx = target_dx - prev_dx
             cur_dy = target_dy - prev_dy
 
-            # 微颤模拟（每 5-10 步插入 1-2px 抖动）
-            if i % random.randint(5, 10) == 0:
-                cur_dx += random.randint(-1, 1)
-                cur_dy += random.randint(-1, 1)
+            # 微颤机制：频率调低，防止画面反向抽搐
+            if i % random.randint(15, 25) == 0:
+                cur_dx += random.choice([-1, 0, 1])
+                cur_dy += random.choice([-1, 0, 1])
 
             if cur_dx != 0 or cur_dy != 0:
                 stroke = ffi.new("InterceptionMouseStroke *")
                 stroke.x = cur_dx
                 stroke.y = cur_dy
-                stroke.flags = 0  # 相对移动
+                stroke.flags = 0  # 0 表示相对移动
                 stroke.state = 0
-
                 lib.interception_send(self._context, self._mouse_device, stroke, 1)
                 total_sent += 1
 
-            # Fitts's Law 变速延迟
-            t = i / steps
-            speed = fitts_speed_profile(t, distance)
-            base_delay = 5 + (1 - speed) * 15  # 5-20ms
+            # 变速延迟：维持在 1ms ~ 3ms 之间
+            speed = fitts_speed_profile(i / steps, distance)
+            base_delay = 1 + (1 - speed) * 2
             time.sleep(base_delay / 1000.0)
 
-        human_like_delay(80)
+        # 移动结束后给一个短暂停顿，符合人类操作习惯
+        time.sleep(random.uniform(0.02, 0.05))
         return total_sent
 
     def mouse_move_to(self, rel_x: int, rel_y: int) -> int:
