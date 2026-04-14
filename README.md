@@ -254,8 +254,8 @@ uv run python -m src.tools.aim_config_editor
 | 训练模型 | `models/trained/luoke_pet.pt` |
 | 实现计划 | `docs/implementation_plan.md` |
 | 项目上下文 | `.claude/CLAUDE.md` |
-| CV 模板目录 | `data/templates/` |
-| 统一配置文件 | `data/templates/templates_config.json` |
+| CV 模板目录 | `config/templates/` |
+| 统一配置文件 | `config/templates/templates_config.json` |
 | 瞄准配置文件 | `config/aim_config.json` |
 | 遮蔽区域编辑器 | `src/tools/mask_region_editor.py` |
 | 瞄准配置编辑器 | `src/tools/aim_config_editor.py` |

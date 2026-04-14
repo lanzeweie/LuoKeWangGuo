@@ -51,13 +51,9 @@ _bmad-output/
 _/
 memory/
 
-# 数据集原始文件（保留标注配置文件）
-data/images/*.jpg
-data/images/*.png
-!data/images/.gitkeep
-data/labels/*.txt
-!data/labels/.gitkeep
-data/demo/
+# 数据目录（YOLO 训练数据）
+data/
+
 # 日志
 *.log
 logs/

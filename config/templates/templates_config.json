@@ -1,0 +1,68 @@
+{
+  "generated_at": "2026-04-12 17:52:43",
+  "templates": {
+    "capture_mode": {
+      "rel_x": 0.9375,
+      "rel_y": 0.8472,
+      "rel_w": 0.0258,
+      "rel_h": 0.0431,
+      "abs_x": 1200,
+      "abs_y": 610,
+      "abs_w": 33,
+      "abs_h": 31,
+      "template_path": "config/templates\\capture_mode.png",
+      "window_w": 1280,
+      "window_h": 720
+    },
+    "battle_mode": {
+      "rel_x": 0.9383,
+      "rel_y": 0.7361,
+      "rel_w": 0.0336,
+      "rel_h": 0.0389,
+      "abs_x": 1201,
+      "abs_y": 530,
+      "abs_w": 43,
+      "abs_h": 28,
+      "template_path": "config/templates\\battle_mode.png",
+      "window_w": 1280,
+      "window_h": 720
+    },
+    "battle_exit_confirm": {
+      "rel_x": 0.4773,
+      "rel_y": 0.3458,
+      "rel_w": 0.0484,
+      "rel_h": 0.0486,
+      "abs_x": 611,
+      "abs_y": 249,
+      "abs_w": 62,
+      "abs_h": 35,
+      "template_path": "config/templates\\battle_exit_confirm.png",
+      "window_w": 1280,
+      "window_h": 720
+    }
+  },
+  "click_points": {
+    "confirm_button": {
+      "rel_x": 0.5789,
+      "rel_y": 0.825,
+      "abs_x": 741,
+      "abs_y": 594,
+      "window_w": 1280,
+      "window_h": 720
+    }
+  },
+  "mask_regions": [
+    {
+      "rel_x": 0.3914,
+      "rel_y": 0.7042,
+      "rel_w": 0.0633,
+      "rel_h": 0.0889
+    },
+    {
+      "rel_x": 0.0531,
+      "rel_y": 0.1125,
+      "rel_w": 0.032,
+      "rel_h": 0.4528
+    }
+  ]
+}

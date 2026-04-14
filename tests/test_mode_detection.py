@@ -3,7 +3,7 @@
 通用模板检测实时测试脚本
 
 功能：
-- 自动加载 data/templates/templates_config.json 中的所有模板
+- 自动加载 config/templates/templates_config.json 中的所有模板
 - 实时检测所有模板的匹配状态
 - 显示每个模板的置信度
 
@@ -151,7 +151,7 @@ def main():
     parser.add_argument("--process-name", default="NRC-Win64-Shipping.exe", help="游戏进程名")
     parser.add_argument("--fps", type=int, default=30, help="屏幕捕获帧率")
     parser.add_argument("--threshold", type=float, default=0.7, help="匹配阈值 (0.0-1.0)")
-    parser.add_argument("--config", default="data/templates/templates_config.json", help="配置文件路径")
+    parser.add_argument("--config", default="config/templates/templates_config.json", help="配置文件路径")
     parser.add_argument("--debug", action="store_true", help="调试模式")
     args = parser.parse_args()
 

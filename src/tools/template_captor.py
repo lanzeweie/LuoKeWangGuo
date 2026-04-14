@@ -5,7 +5,7 @@ CV 模板编辑器 — 通用模板截取与配置工具
 完全通用，不硬编码任何业务相关的模板名。用户通过 CLI 参数指定要截取的模板列表，
 程序逐个引导完成框选（RECT）或点击（POINT），最终输出到统一配置文件。
 
-配置文件结构 (data/templates/templates_config.json):
+配置文件结构 (config/templates/templates_config.json):
 ├── templates: { "模板名": { rel_x, rel_y, rel_w, rel_h, ... } }   ← ROI 模板
 └── click_points: { "点名": { rel_x, rel_y, ... } }                ← 点击位置
 
@@ -61,7 +61,7 @@ from src.components.coordinate_picker import (
 from src.logger import get_logger
 
 # ── 配置路径 ──
-TEMPLATE_DIR = "data/templates"
+TEMPLATE_DIR = "config/templates"
 CONFIG_PATH = os.path.join(TEMPLATE_DIR, "templates_config.json")
 
 

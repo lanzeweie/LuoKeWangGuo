@@ -11,7 +11,7 @@ from typing import Tuple, List
 
 # 配置文件路径
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CONFIG_PATH = os.path.join(PROJECT_ROOT, "..", "data", "templates", "templates_config.json")
+CONFIG_PATH = os.path.join(PROJECT_ROOT, "..", "config", "templates", "templates_config.json")
 
 # 各模板的默认相对坐标（配置文件缺失时使用）
 DEFAULT_REL_ROI = {

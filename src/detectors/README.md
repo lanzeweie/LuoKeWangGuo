@@ -37,7 +37,7 @@ click_pos = load_click_point("confirm_button")  # (rel_x, rel_y)
 from src.detectors import CaptureModeDetector
 
 detector = CaptureModeDetector(
-    template_path="data/templates/capture_mode.png",
+    template_path="config/templates/capture_mode.png",
     frame_size=(1280, 720),
     debug=False
 )
@@ -47,7 +47,7 @@ is_match, confidence = detector.is_capture_mode(frame)
 
 ### 配置文件
 
-所有检测器从 `data/templates/templates_config.json` 加载 ROI 配置：
+所有检测器从 `config/templates/templates_config.json` 加载 ROI 配置：
 - 相对坐标 (rel_x, rel_y, rel_w, rel_h) - 支持任意分辨率
 - 绝对坐标 (abs_x, abs_y, abs_w, abs_h) - 基于 1280x720
 
@@ -69,7 +69,7 @@ is_match, confidence = detector.is_capture_mode(frame)
 
 ## 添加新检测器
 
-1. 在 `data/templates/` 添加模板图片
+1. 在 `config/templates/` 添加模板图片
 2. 在 `templates_config.json` 添加 ROI 配置
 3. 创建检测器类（继承或参考现有实现）
 4. 使用 `config_loader` 加载配置
