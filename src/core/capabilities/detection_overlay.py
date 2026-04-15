@@ -76,7 +76,6 @@ class DetectionOverlay:
         detector: "ObjectDetector",  # YOLO 检测器
         screen_width: int,
         screen_height: int,
-        mask_regions: Optional[List[Tuple[float, float, float, float]]] = None,  # 遮蔽区域（相对坐标）
         detect_interval: int = 5,  # 每 N 帧检测一次（默认，逐帧检测）
         lerp_alpha: float = 0.5,  # 插值平滑系数
         confirm_frames: int = 1,  # 候选→活跃所需帧数（降低为1，缓动场景下更容易转正）
@@ -114,7 +113,6 @@ class DetectionOverlay:
         self.detector = detector
         self.screen_width = screen_width
         self.screen_height = screen_height
-        self.mask_regions: List[Tuple[float, float, float, float]] = mask_regions or []
 
         # 参数
         # 关键问题：候选目标的容错时间必须足够长，避免跳帧期间被销毁
@@ -220,10 +218,6 @@ class DetectionOverlay:
                 self._consecutive_failures += 1
                 detections = []
 
-            # 过滤遮蔽区域内的检测结果
-            if self.mask_regions:
-                detections = self._filter_masked_detections(detections, frame.shape[1], frame.shape[0])
-
             # 检测帧：完整匹配更新
             self._match_and_update(detections)
         else:
@@ -308,44 +302,6 @@ class DetectionOverlay:
         predicted_cy = target.last_center[1] + vy * frames_since_detect
 
         return (predicted_cx, predicted_cy)
-
-    def _filter_masked_detections(
-        self,
-        detections: List[DetectionResult],
-        frame_w: int,
-        frame_h: int,
-    ) -> List[DetectionResult]:
-        """过滤掉中心点在遮蔽区域内的检测结果
-
-        Args:
-            detections: 原始检测结果
-            frame_w: 帧宽度
-            frame_h: 帧高度
-
-        Returns:
-            过滤后的检测结果
-        """
-        filtered = []
-        for det in detections:
-            cx = (det.x1 + det.x2) / 2
-            cy = (det.y1 + det.y2) / 2
-            # 换算为相对坐标
-            rel_cx = cx / frame_w
-            rel_cy = cy / frame_h
-            # 检查是否在任一遮蔽区域内
-            in_mask = False
-            for mx, my, mw, mh in self.mask_regions:
-                if mx <= rel_cx <= mx + mw and my <= rel_cy <= my + mh:
-                    in_mask = True
-                    break
-            if not in_mask:
-                filtered.append(det)
-            elif self.debug:
-                logger.debug(
-                    f"遮蔽过滤: 检测框 ({det.x1},{det.y1},{det.x2},{det.y2}) "
-                    f"中心点 ({rel_cx:.3f},{rel_cy:.3f}) 在遮蔽区域内，已忽略"
-                )
-        return filtered
 
     def _match_and_update(self, detections: List[DetectionResult]) -> None:
         """匹配检测结果与跟踪目标，并更新状态"""

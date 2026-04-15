@@ -8,6 +8,7 @@ import numpy as np
 from typing import List, Dict, Optional, Tuple
 from ultralytics import YOLO
 from src.logger import get_logger
+from src.detectors.config_loader import load_mask_regions
 
 
 class DetectionResult:
@@ -66,6 +67,10 @@ class ObjectDetector:
         self.model: Optional[YOLO] = None
         self.inference_times: List[float] = []
         self.max_history = 100
+        # 自动加载遮蔽区域
+        self.mask_regions = load_mask_regions()
+        if self.mask_regions:
+            self.logger.info(f"已加载 {len(self.mask_regions)} 个遮蔽区域")
 
     def load_model(self) -> bool:
         """
@@ -156,6 +161,11 @@ class ObjectDetector:
             if self.debug and detections:
                 self.logger.debug_msg(f"检测到 {len(detections)} 个目标")
 
+            # 自动过滤遮蔽区域内的检测结果
+            if self.mask_regions:
+                frame_h, frame_w = frame.shape[:2]
+                detections = self._filter_masked_detections(detections, frame_w, frame_h)
+
             return detections
 
         except Exception as e:
@@ -227,6 +237,37 @@ class ObjectDetector:
             del self.model
             self.model = None
             self.logger.info("模型已卸载")
+
+    def _filter_masked_detections(
+        self,
+        detections: List[DetectionResult],
+        frame_w: int,
+        frame_h: int,
+    ) -> List[DetectionResult]:
+        """过滤掉中心点在遮蔽区域内的检测结果"""
+        if not self.mask_regions:
+            return detections
+
+        filtered = []
+        for det in detections:
+            cx = (det.x1 + det.x2) / 2
+            cy = (det.y1 + det.y2) / 2
+            rel_cx = cx / frame_w
+            rel_cy = cy / frame_h
+
+            in_mask = False
+            for mx, my, mw, mh in self.mask_regions:
+                if mx <= rel_cx <= mx + mw and my <= rel_cy <= my + mh:
+                    in_mask = True
+                    break
+
+            if not in_mask:
+                filtered.append(det)
+            elif self.debug:
+                self.logger.debug_msg(
+                    f"遮蔽过滤: 中心点 ({rel_cx:.3f},{rel_cy:.3f}) 在遮蔽区域内"
+                )
+        return filtered
 
 
 def test_detector():

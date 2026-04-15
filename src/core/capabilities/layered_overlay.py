@@ -515,15 +515,21 @@ class LayeredOverlay:
         verification_progress: int = 0,
         verification_required: int = 0,
         current_state: str = "",
+        border_color: Optional[Tuple[int, int, int, int]] = None,
+        border_thickness: int = 3,
+        status_lines: Optional[List[str]] = None,
     ):
         """
-        绘制带优先级和距离状态的检测结果
+        绘制带距离的检测结果（每个目标显示：类别 + 距离）
 
         Args:
             scored_detections: 已评分的目标列表
             verification_progress: 当前验证进度
             verification_required: 需要的验证周期数
-            current_state: 当前状态文本
+            current_state: 当前状态文本（左上角）
+            border_color: 边框颜色（BGRA），None 则不画边框
+            border_thickness: 边框粗细（像素）
+            status_lines: 状态行列表（右上角显示，最多3条）
         """
         if self._buffer is None or self._hwnd is None:
             return
@@ -532,6 +538,7 @@ class LayeredOverlay:
             buf = self._back_buffer
             buf[:] = 0
 
+            # ── 画评分检测框（颜色编码） ──
             for score in scored_detections:
                 det = score.detection
                 x1, y1, x2, y2 = det.x1, det.y1, det.x2, det.y2
@@ -555,25 +562,17 @@ class LayeredOverlay:
                             if 0 <= py < self.height and 0 <= px < self.width:
                                 buf[py, px] = [255, 255, 255, 255]
 
-                # ── 优先级标签 (#1, #2, ...) ──
-                rank_label = f"#{score.priority_rank}"
-                rank_y = y1 + self._rank_offset_y if y1 + self._rank_offset_y >= 0 else y2 + 6
-                self._draw_text(rank_label, x1 + 4, rank_y, (255, 255, 255, 255), 'small')
-
-                # ── 类别名称标签 ──
+                # ── 类别标签（框上方，白色大字） ──
                 class_name = self._class_names[det.class_id] if det.class_id < len(self._class_names) else f"ID{det.class_id}"
-                class_label = f"{class_name} {det.confidence:.0%}"
-                class_label_y = y1 + self._class_offset_y if y1 + self._class_offset_y >= 0 else y2 + 6
-                self._draw_text(class_label, x1 + 4, class_label_y, (255, 255, 255, 255), 'small')
+                class_label_y = y1 + self._label_offset_y if y1 + self._label_offset_y >= 0 else y1 + 6
+                self._draw_text(class_name, x1 + 4, class_label_y, (255, 255, 255, 255), 'normal')
 
-                # ── 距离状态标签（中文支持） ──
-                distance_text = {
-                    "FAR": "远",
-                    "MEDIUM": "中",
-                    "CLOSE": "近"
-                }.get(score.distance_state, score.distance_state)
-                distance_y = y1 + self._distance_offset_y if y1 + self._distance_offset_y >= 0 else y2 + 6
-                self._draw_text(distance_text, x1 + 4, distance_y, color, 'small')
+                # ── 距离标签（框上方，类别旁边，颜色编码） ──
+                if score.estimated_distance > 0 and score.estimated_distance != float('inf'):
+                    dist_text = f"~{score.estimated_distance:.1f}m"
+                else:
+                    dist_text = "~??"
+                self._draw_text(dist_text, x1 + 4, class_label_y + 18, color, 'small')
 
             # ── 验证进度条 ──
             if verification_required > 0 and verification_progress > 0:
@@ -599,7 +598,26 @@ class LayeredOverlay:
                     "BATTLE_EXIT": "战斗退出"
                 }
                 display_text = state_text_map.get(current_state, current_state)
-                self._draw_text(display_text, self._state_x, self._state_y, (255, 255, 255, 255), 'large')
+                self._draw_text(display_text, self._state_x, self._state_y, (255, 255, 255, 255), 'normal')
+
+            # ── 状态行（右上角，最多3条） ──
+            if status_lines:
+                status_x = self.width - 260
+                for i, line in enumerate(status_lines[:3]):
+                    y = self._state_y + i * 30
+                    self._draw_text(line, status_x, y, (255, 255, 100, 255), 'large')
+
+            # ── 边框 ──
+            if border_color is not None:
+                bh, bw = buf.shape[:2]
+                # 上
+                buf[0:border_thickness, 0:bw] = border_color
+                # 下
+                buf[bh - border_thickness:bh, 0:bw] = border_color
+                # 左
+                buf[0:bh, 0:border_thickness] = border_color
+                # 右
+                buf[0:bh, bw - border_thickness:bw] = border_color
 
             # ── 提交 ──
             np.copyto(self._buffer, self._back_buffer)
@@ -627,6 +645,27 @@ class LayeredOverlay:
 
         except Exception as e:
             self.logger.error(f"分层窗口绘制失败: {e}")
+
+    def _draw_border(self, color: Tuple[int, int, int, int] = (0, 255, 0, 255), thickness: int = 3):
+        """在覆盖层边缘绘制边框（用于状态显示）。
+
+        Args:
+            color: BGRA 颜色，默认绿色 (0, 255, 0, 255)
+            thickness: 边框粗细（像素）
+        """
+        if self._back_buffer is None:
+            return
+        buf = self._back_buffer
+        h, w = buf.shape[:2]
+
+        # 上边
+        buf[0:thickness, 0:w] = color
+        # 下边
+        buf[h - thickness:h, 0:w] = color
+        # 左边
+        buf[0:h, 0:thickness] = color
+        # 右边
+        buf[0:h, w - thickness:w] = color
 
     def destroy(self):
         """销毁覆盖窗口"""

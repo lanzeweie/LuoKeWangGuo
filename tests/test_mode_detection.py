@@ -207,9 +207,22 @@ def main():
     print(f"检测 {len(detectors)} 个模板: {', '.join([d.config.name for d in detectors])}")
     print("按 Ctrl+C 退出\n")
 
+    # 固定列输出：表头只打印一次，数值行实时覆盖更新
+    columns = [d.config.name for d in detectors]
+    value_text_min_width = len("✗ 0.000")
+    col_widths = [max(len(name), value_text_min_width) for name in columns]
+
+    header_line = " | ".join(
+        f"{name:<{width}}" for name, width in zip(columns, col_widths)
+    )
+    separator_line = "-+-".join("-" * width for width in col_widths)
+
+    print(header_line)
+    print(separator_line)
+
     # 主循环
     capture_interval = 1.0 / args.fps
-    last_status = None
+    last_line_len = 0
 
     try:
         with cap:
@@ -227,18 +240,19 @@ def main():
                     is_match, confidence = detector.detect(frame, (game_width, game_height))
                     results.append((detector.config.name, is_match, confidence))
 
-                # 构建状态字符串
-                status_parts = []
-                for name, is_match, confidence in results:
+                # 构建并覆盖更新数值行（不新增打印行）
+                value_cells = []
+                for (_, is_match, confidence), width in zip(results, col_widths):
                     status = "✓" if is_match else "✗"
-                    status_parts.append(f"{name}: {status} ({confidence:.3f})")
+                    value_text = f"{status} {confidence:.3f}"
+                    value_cells.append(f"{value_text:<{width}}")
 
-                current_status = " | ".join(status_parts)
+                value_line = " | ".join(value_cells)
 
-                # 只在状态变化时打印
-                if current_status != last_status:
-                    print(f"\r{current_status}", end="", flush=True)
-                    last_status = current_status
+                # 如果新行更短，补空格覆盖旧内容尾部
+                pad_len = max(0, last_line_len - len(value_line))
+                print(f"\r{value_line}{' ' * pad_len}", end="", flush=True)
+                last_line_len = len(value_line)
 
                 # 帧率限制
                 elapsed = time.time() - loop_start

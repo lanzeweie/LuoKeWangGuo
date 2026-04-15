@@ -26,6 +26,7 @@ from src.core import (
     LayeredOverlay,
 )
 from src.core.capabilities.detection_overlay import DetectionOverlay
+from src.core.capabilities.target_scoring import TargetScorer
 from src.logger import get_logger
 
 
@@ -118,6 +119,7 @@ def main():
 
     # 5. 分层覆盖窗口
     layered_overlay = None
+    scorer = None
     if not args.no_draw:
         logger.info("[5/5] 创建分层覆盖窗口...")
         layered_overlay = LayeredOverlay(
@@ -128,6 +130,12 @@ def main():
         if not layered_overlay.create_window():
             logger.error("分层窗口创建失败")
             sys.exit(1)
+
+        # 6. 目标评分器（用于计算距离）
+        scorer = TargetScorer(
+            screen_width=game_width,
+            screen_height=game_height,
+        )
     else:
         logger.info("[5/5] 跳过打框（--no-draw）")
 
@@ -210,10 +218,12 @@ def main():
                             x1, y1, x2, y2 = map(int, t.bbox)
                             det = DetectionResult(x1, y1, x2, y2, t.confidence, t.class_id)
                             det_results.append(det)
-                        layered_overlay.draw(det_results)
+                        # 通过 TargetScorer 计算距离，使用 draw_scored 显示
+                        scored = scorer.score_detections(det_results)
+                        layered_overlay.draw_scored(scored_detections=scored)
                     else:
                         # 无目标时传入空列表（自动清屏）
-                        layered_overlay.draw([])
+                        layered_overlay.draw_scored(scored_detections=[])
 
                 elapsed = time.time() - loop_start
                 if elapsed < capture_interval:
