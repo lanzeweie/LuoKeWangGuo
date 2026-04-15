@@ -70,6 +70,13 @@ _bmad/
 .history/
 runs/
 
+# 数据集相关文件（本地生成，不提交）
+data/dataset.yaml
+data/classes.txt
 data/labels.cache
-data/images
-data/labels
+data/images/*
+data/labels/*
+data/X-AnyLabeling/*
+
+# 训练输出
+models/trained/

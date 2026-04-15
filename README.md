@@ -62,18 +62,27 @@ src/
     ├── diagnose_window.py           # 窗口诊断工具
     └── check_interception.py        # Interception 环境检查
 
-tools/                               # 数据准备与训练脚本（根目录）
+tools/                               # 数据准备与训练脚本
     ├── train.py                     # 训练脚本
     ├── prepare_dataset.py           # 数据集准备
     ├── extract_frames.py            # 提取视频帧
-    ├── convert_labelme_to_yolo.py   # LabelMe 转 YOLO 格式
-    └── README.md                    # 工具说明
+    ├── convert_labelme_to_yolo.py    # LabelMe 转 YOLO 格式
+    └── README.md                    # 工具使用说明
+
+data/                                # 数据集目录
+    ├── dataset.yaml                 # YOLO 训练配置文件
+    ├── classes.txt                  # 类别名称列表
+    ├── images/                      # 训练图片
+    ├── labels/                      # 标注文件
+    ├── templates/                   # CV 模板图片
+    └── README.md                    # 数据集格式说明
 
 tests/                               # 测试套件
     ├── test_aim_and_throw.py        # 瞄准投掷集成测试
     ├── test_detection_overlay_realtime.py  # 检测覆盖层实时测试
     ├── test_input_auto.py           # 输入自动化测试
-    └── test_mode_detection.py       # CV 模式检测测试
+    ├── test_mode_detection.py       # CV 模式检测测试
+    └── test_search_navigation_realtime.py  # 搜索导航实时测试
 ```
 
 ### 分层职责
@@ -138,7 +147,26 @@ pip install interception
 - 安装后需要重启系统
 - 详见：https://github.com/oblitum/Interception
 
-### 2. 运行主程序
+### 2. 训练模型
+
+详见 [data/README.md](data/README.md) 和 [tools/README.md](tools/README.md)。
+
+**模型文件位置**：
+| 阶段 | 路径 | 说明 |
+|------|------|------|
+| 预训练基座 | `models/base/yolov8n.pt` | YOLO 官方提供 |
+| 训练后模型 | `models/trained/luoke_pet.pt` | 当前项目训练好的模型 |
+
+**训练命令**（详细说明见 tools/README.md）：
+```bash
+# 使用封装脚本训练（推荐）
+uv run python tools/train.py
+
+# 直接使用 ultralytics CLI
+uv run yolo train data=data/dataset.yaml model=models/base/yolov8n.pt epochs=100 device=0
+```
+
+### 3. 运行主程序
 
 > **必须以管理员身份运行终端**，否则 Interception 驱动无法正常工作。
 
@@ -146,7 +174,7 @@ pip install interception
 uv run python -m src.main --model models/trained/luoke_pet.pt
 ```
 
-### 3. 常用命令
+### 4. 常用命令
 
 ```bash
 # 模型验证
@@ -173,11 +201,17 @@ uv run python -m src.tools.check_interception
 # 测试套件
 uv run python -m pytest tests/                  # 运行全部测试
 uv run python tests/test_aim_and_throw.py        # 瞄准投掷集成测试
-uv run python tests/test_search_navigation_realtime.py  # 搜索 + 靠近 实机测试
 uv run python tests/test_detection_overlay_realtime.py  # 检测覆盖层实时测试
 uv run python tests/test_input_auto.py           # 输入自动化测试
 uv run python tests/test_mode_detection.py       # CV 模式检测测试
+uv run python tests/test_search_navigation_realtime.py  # 搜索导航实时测试
 ```
+
+## 数据集与训练
+
+项目使用 YOLO 格式数据集，详见：
+- [data/README.md](data/README.md) — 数据集格式、目录结构、标注规范
+- [tools/README.md](tools/README.md) — 训练脚本、数据准备工具
 
 ## 模型性能
 
@@ -254,6 +288,8 @@ uv run python -m src.tools.aim_config_editor
 | 训练模型 | `models/trained/luoke_pet.pt` |
 | 实现计划 | `docs/implementation_plan.md` |
 | 项目上下文 | `.claude/CLAUDE.md` |
+| 数据集说明 | `data/README.md` |
+| 工具使用说明 | `tools/README.md` |
 | CV 模板目录 | `config/templates/` |
 | 统一配置文件 | `config/templates/templates_config.json` |
 | 瞄准配置文件 | `config/aim_config.json` |
