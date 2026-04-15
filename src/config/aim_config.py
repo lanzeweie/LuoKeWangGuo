@@ -54,6 +54,12 @@ class AimConfig:
     smoothing_alpha: float = 0.3     # 平滑滤波系数（0-1）
     flight_time: float = 0.5         # 精灵球预估飞行时间（秒）
 
+    # === 遮挡处理参数 ===
+    handle_occlusion: bool = True    # 是否启用遮挡处理
+    max_occlusion_attempts: int = 3  # 最大遮挡尝试次数
+    camera_up_offset: int = 150      # 抬高摄像头的像素距离
+    occlusion_wait_time: float = 0.2 # 抬高视角后的等待时间（秒）
+
     # === 日志和调试 ===
     debug: bool = False              # 是否输出调试日志
     log_move_threshold: int = 1      # 记录移动的最小阈值

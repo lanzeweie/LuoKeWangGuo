@@ -4,7 +4,7 @@
 将搜索行为升级为多模式调度：
 - Micro Look: 原地小幅随机看
 - Sweep 360: 分段环顾
-- Circular Patrol: 小范围走位 + 回位
+- Circular Patrol: W前进+转向+回位（摄像机导向）
 """
 
 import time

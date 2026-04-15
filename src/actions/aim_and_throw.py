@@ -287,15 +287,53 @@ class AimAndThrow:
         # 初始化当前瞄准坐标
         current_aim_x, current_aim_y = aim_x, aim_y
 
+        # 遮挡处理参数
+        if self.config.handle_occlusion:
+            lost_target_count = 0  # 连续丢失目标计数
+            max_lost_attempts = self.config.max_occlusion_attempts
+            camera_up_offset = self.config.camera_up_offset
+            occlusion_wait = self.config.occlusion_wait_time
+
         while time.time() < aim_end_time:
             # 获取实时目标位置 (现在需要支持返回 bbox_area 以维持下坠补偿)
             if get_target_func is not None:
                 current_target = get_target_func()
                 if current_target is None:
-                    if self.debug:
-                        self._log.debug_msg("aim_and_throw: 实时目标丢失，使用最后位置")
+                    # 目标丢失，可能是遮挡
+                    if self.config.handle_occlusion:
+                        lost_target_count += 1
+
+                        if lost_target_count <= max_lost_attempts:
+                            # 尝试抬高摄像头
+                            try:
+                                # 向下移动鼠标 = 抬高视角
+                                self._send_input.mouse_move(0, camera_up_offset)
+                                time.sleep(occlusion_wait)  # 等待视角稳定
+
+                                if self.debug:
+                                    self._log.debug_msg(
+                                        f"aim_and_throw: 目标丢失(第{lost_target_count}次)，抬高摄像头{camera_up_offset}px"
+                                    )
+                            except Exception as exc:
+                                if self.debug:
+                                    self._log.debug_msg(f"aim_and_throw: 抬高摄像头失败: {exc}")
+
+                            # 再次尝试检测
+                            current_target = get_target_func()
+                            if current_target is not None:
+                                # 找到了，重置计数
+                                lost_target_count = 0
+                                if self.debug:
+                                    self._log.debug_msg("aim_and_throw: 抬高摄像头后重新找到目标")
+                    else:
+                        # 不启用遮挡处理，直接记录
+                        if self.debug:
+                            self._log.debug_msg("aim_and_throw: 实时目标丢失，使用最后位置")
                 else:
-                    # 兼容不同长度的返回值 (cx, cy) 或 (cx, cy, bbox_area)
+                    # 找到目标，重置丢失计数
+                    if self.config.handle_occlusion:
+                        lost_target_count = 0
+                    # 直接使用传入的中心点坐标（已经是目标中心）
                     cx = current_target[0]
                     cy = current_target[1]
                     current_area = current_target[2] if len(current_target) > 2 else target.bbox_area

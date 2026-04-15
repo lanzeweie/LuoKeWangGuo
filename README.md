@@ -13,10 +13,10 @@
 src/
 ├── main.py                          # 主入口 — 组装 AppContext + 启动循环
 ├── logger.py                        # 日志
-├── config/                          # 配置管理
+├── config/                          # 配置管理（src 下）
 │   ├── __init__.py                  # 配置包
 │   └── aim_config.py               # 瞄准配置
-│
+
 ├── core/                            # 能力层 — 底层工具库
 │   ├── context.py                  # AppContext — 黑板模式，共享运行时上下文
 │   ├── state_machine.py            # 状态机 — 状态跳转 + 策略调度
@@ -47,7 +47,12 @@ src/
 │   ├── base.py                     # Action 枚举 + BaseStrategy 抽象类
 │   ├── search_strategy.py          # 搜索策略 — 屏幕怎么移、怎么找精灵
 │   ├── navigation_strategy.py      # 导航策略 — WASD 怎么靠近
-│   └── aim_strategy.py             # 瞄准策略 — 鼠标怎么瞄准
+│   ├── aim_strategy.py             # 瞄准策略 — 鼠标怎么瞄准
+│   └── search_patterns/            # 搜索模式实现
+│       ├── base_pattern.py        # 基础搜索模式
+│       ├── circular_patrol.py      # 圆形巡逻模式
+│       ├── sweep_360.py            # 360度扫掠模式
+│       └── micro_look.py          # 微调观察模式
 │
 ├── utils/                           # 工具函数 — 纯数学计算
 │   └── math_utils.py               # 距离、角度、面积
@@ -60,7 +65,16 @@ src/
     ├── mask_region_editor.py        # 遮蔽区域编辑器（多次框选，忽略 YOLO 检测区域）
     ├── annotate_roi.py              # ROI 标注工具
     ├── diagnose_window.py           # 窗口诊断工具
-    └── check_interception.py        # Interception 环境检查
+    ├── check_interception.py        # Interception 环境检查
+    └── aim_config_editor.py         # 瞄准配置编辑器
+
+config/                              # 根级配置目录
+    ├── aim_config.json             # 瞄准行为配置文件
+    └── templates/                   # CV 模板图片
+        ├── capture_mode.png
+        ├── battle_mode.png
+        ├── battle_exit_confirm.png
+        └── templates_config.json   # 模板坐标配置
 
 tools/                               # 数据准备与训练脚本
     ├── train.py                     # 训练脚本

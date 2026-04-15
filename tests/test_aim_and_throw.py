@@ -195,7 +195,7 @@ def main():
     # 4. 捕捉模式检测器
     logger.info("[4/6] 初始化捕捉模式检测器...")
     # 使用绝对路径确保模板能正确加载
-    template_path = str(Path(__file__).parent.parent / "data" / "templates" / "capture_mode.png")
+    template_path = str(Path(__file__).parent.parent / "config" / "templates" / "capture_mode.png")
     logger.info(f"  模板路径: {template_path}")
     try:
         capture_detector = CaptureModeDetector(
@@ -229,11 +229,10 @@ def main():
     scorer = TargetScorer(
         screen_width=width,
         screen_height=height,
-        max_distance_threshold=args.max_distance,
-        near_threshold=args.near_threshold,
-        capture_threshold=args.capture_threshold,
         center_offset_x=args.center_offset_x,
         center_offset_y=args.center_offset_y,
+        far_threshold=args.max_distance,      # 使用 max-distance 作为远距离阈值
+        near_threshold=args.near_threshold,   # 使用 near-threshold 作为近距离阈值
     )
 
     # 7. 加载瞄准配置
@@ -372,21 +371,30 @@ def main():
                 active = [t for t in tracked if t.state == "active"]
                 has_target = len(active) > 0
 
-                # ── 自动瞄准 + 投掷执行（独立线程，不阻塞主循环） ──
-                # 触发条件：捕捉模式激活 + 有活跃目标 + 本次周期未执行 + 没有线程在运行
-                if is_capture_mode and not throw_executed_this_cycle and not has_target:
-                    # 限制警告输出频率，避免刷屏（每秒最多输出一次）
-                    current_time = time.time()
-                    if current_time - last_skip_warning_time > 1.0:
-                        logger.warning(
-                            f"[瞄准跳过] is_capture_mode={is_capture_mode}, "
-                            f"has_target={has_target}(active={len(active)}), "
-                            f"tracked总数={len(tracked)}, "
-                            f"candidate={len([t for t in tracked if t.state=='candidate'])}, "
-                            f"lost={len([t for t in tracked if t.state=='lost'])}"
-                        )
-                        last_skip_warning_time = current_time
-                if is_capture_mode and has_target and not throw_executed_this_cycle and throw_thread is None:
+                # ── 捕捉模式下的逻辑处理 ──
+                if is_capture_mode and not throw_executed_this_cycle and throw_thread is None:
+                    if has_target:
+                        # 对活跃目标进行评分排序
+                        scored = scorer.score_detections([
+                            DetectionResult(
+                                *map(int, t.bbox),
+                                t.confidence,
+                                t.class_id,
+                            )
+                            for t in active
+                        ])
+                        target = scored[0]
+
+                        logger.info("=" * 50)
+                        logger.info("【自动瞄准 + 投掷】")
+                        logger.info(f"  目标中心: {target.detection.center}")
+                        logger.info(f"  置信度: {target.detection.confidence:.3f}")
+                        logger.info(f"  距离状态: {target.distance_state}")
+                        logger.info("=" * 50)
+
+                        # 将窗口放到前台
+                        window_mgr.bring_to_foreground()
+                        time.sleep(0.1)
                     # 对活跃目标进行评分排序
                     scored = scorer.score_detections([
                         DetectionResult(
@@ -416,22 +424,18 @@ def main():
                         if current_frame is None:
                             return None
 
-                        current_tracked = overlay_det.update(current_frame)
+                        # 直接进行 YOLO 检测，获取原始结果（不使用跟踪插值）
+                        current_detections = detector.detect(current_frame, target_class=args.target_class)
 
-                        current_active = [
-                            t for t in current_tracked
-                            if t.state == "active"
-                        ]
-                        if not current_active:
+                        if not current_detections:
                             return None
 
-                        current_target = current_active[0]
+                        # 选择置信度最高的目标
+                        current_target = max(current_detections, key=lambda d: d.confidence)
 
-                        # 解析 BBox
-                        x1, y1, x2, y2 = current_target.bbox
-                        cx = int((x1 + x2) / 2)
-                        cy = int((y1 + y2) / 2)
-                        bbox_area = float((x2 - x1) * (y2 - y1))
+                        # 使用 DetectionResult.center 属性获取精确的中心点
+                        cx, cy = current_target.center
+                        bbox_area = float(current_target.area)
 
                         return cx, cy, bbox_area
 

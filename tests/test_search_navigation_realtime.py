@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.core import ObjectDetector, TargetScorer, WindowManager
+from src.core import ObjectDetector, TargetScorer, WindowManager, LayeredOverlay
 from src.core.capabilities.interception_sim import (
     INTERCEPTION_AVAILABLE,
     InterceptionSimulator,
@@ -32,6 +32,7 @@ from src.logger import get_logger
 from src.strategies.base import Action
 from src.strategies.navigation_strategy import NavigationStrategy
 from src.strategies.search_strategy import SearchStrategy
+from src.actions.enhanced_move_controller import EnhancedMoveController
 
 
 def _build_context(logger, width: int, height: int) -> AppContext:
@@ -53,6 +54,10 @@ def main() -> int:
     parser.add_argument("--nms-iou", type=float, default=0.7, help="NMS IoU 阈值")
     parser.add_argument("--debug", action="store_true", help="调试模式")
     parser.add_argument("--search-step-px", type=int, default=40, help="搜索时每次鼠标平移像素")
+    parser.add_argument("--max-radius", type=float, default=5.0, help="智能搜索最大活动半径")
+    parser.add_argument("--scan-speed", type=float, default=30.0, help="智能搜索扫描速度（度/秒）")
+    parser.add_argument("--scan-step", type=float, default=30.0, help="智能搜索每次扫描角度步长")
+    parser.add_argument("--move-speed", type=float, default=3.0, help="智能搜索移动速度")
     parser.add_argument("--max-iterations", type=int, default=0, help="最大循环次数，0 表示无限")
     parser.add_argument(
         "--auto-detect-mouse",
@@ -68,6 +73,7 @@ def main() -> int:
         help="禁用自动检测真实物理鼠标",
     )
     parser.add_argument("--auto-detect-timeout", type=float, default=8.0, help="自动检测鼠标超时（秒）")
+    parser.add_argument("--no-overlay", action="store_true", help="禁用覆盖层打框")
     args = parser.parse_args()
 
     logger = get_logger(debug=args.debug)
@@ -128,16 +134,40 @@ def main() -> int:
         logger.error("模型加载失败")
         return 1
 
+    # 伪距离阈值：< 40 执行捕捉，>= 40 靠近
+    PSEUDO_DIST_CAPTURE_THRESHOLD = 40.0
+
     scorer = TargetScorer(
         screen_width=width,
         screen_height=height,
+        far_threshold=40.0,   # 伪距离 > 40 → FAR（需靠近）
+        near_threshold=15.0,  # 伪距离 15~40 → MEDIUM
     )
 
     ctx = _build_context(logger, width, height)
-    search_strategy = SearchStrategy(legacy_mouse_action=False)
-    navigation_strategy = NavigationStrategy(center_tolerance=150, far_threshold=300, timeout_seconds=15.0)
+    search_strategy = SearchStrategy(
+        pan_angle=5.0,
+        max_pan_cycles=6,
+        micro_cycles_before_upgrade=2,
+        legacy_mouse_action=True,
+    )
+    navigation_strategy = NavigationStrategy(center_tolerance=80, far_threshold=300, timeout_seconds=15.0)
+
+    # 分层覆盖窗口
+    layered_overlay = None
+    if not args.no_overlay:
+        layered_overlay = LayeredOverlay(
+            x=left, y=top,
+            width=width, height=height,
+            debug=args.debug,
+        )
+        if not layered_overlay.create_window():
+            logger.error("分层窗口创建失败")
+            return 1
+        logger.success("分层覆盖窗口已创建")
 
     send_input = InterceptionSimulator(window_mgr=window_mgr, debug=args.debug)
+    enhanced_move = EnhancedMoveController(send_input, debug=args.debug)
     if args.auto_detect_mouse:
         try:
             detected = send_input.auto_detect_hardware_mouse(timeout_seconds=args.auto_detect_timeout)
@@ -166,21 +196,35 @@ def main() -> int:
                 detections = detector.detect(frame, target_class=args.target_class)
                 scored = scorer.score_detections(detections)
 
+                # 绘制检测框
+                if layered_overlay is not None:
+                    layered_overlay.draw_scored(scored_detections=scored)
+
                 ctx.detections = detections
 
                 if scored:
-                    ctx.verified_target = scored[0].detection
-                    nav_action = navigation_strategy.execute(ctx)
-                    move_params = navigation_strategy.get_movement_parameters(ctx)
+                    top = scored[0]
+                    pseudo_dist = top.estimated_distance
+                    ctx.verified_target = top.detection
 
-                    if nav_action == Action.MOVE_WASD and move_params is not None:
-                        direction, duration = move_params
+                    if pseudo_dist < PSEUDO_DIST_CAPTURE_THRESHOLD:
+                        # 伪距离 < 40 → 执行捕捉
                         logger.info(
-                            f"[导航] 目标数={len(detections)} 方向={direction} 时长={duration:.2f}s"
+                            f"[捕捉] 伪距离={pseudo_dist:.1f} < {PSEUDO_DIST_CAPTURE_THRESHOLD}，"
+                            f"执行捕捉！目标数={len(detections)}"
                         )
-                        send_input.press_key(direction, duration=duration)
-                    elif nav_action == Action.NO_OP:
-                        logger.info(f"[导航] 目标已足够近，目标数={len(detections)}")
+                        # TODO: 调用 aim_and_throw 执行捕捉
+                    else:
+                        # 伪距离 >= 40 → 持续按 W 前进（鼠标已对准目标）
+                        nav_action = navigation_strategy.execute(ctx)
+
+                        if nav_action == Action.MOVE_WASD:
+                            # 持续前进，直到目标足够近或消失
+                            logger.info(f"[靠近] 伪距离={pseudo_dist:.1f}，持续前进 W")
+                            send_input.press_key('w', duration=0.3)
+                        elif nav_action == Action.NO_OP:
+                            # 目标已足够近
+                            logger.info(f"[靠近] 目标已足够近（伪距离={pseudo_dist:.1f}），停止")
 
                     # 有目标时，搜索策略应当让权并复位
                     search_action = search_strategy.execute(ctx)
@@ -191,26 +235,33 @@ def main() -> int:
                     search_action = search_strategy.execute(ctx)
                     search_cmd = search_strategy.get_search_command()
 
-                    if search_action in (Action.SEARCH_MOUSE, Action.SEARCH_PAN):
+                    if search_action == Action.SEARCH_PAN:
+                        # SearchStrategy 的扫描动作：带角度和停顿
+                        angle = float(search_cmd.params.get("angle", args.scan_step))
+                        speed = float(search_cmd.params.get("speed", args.scan_speed))
+                        pause_s = float(search_cmd.params.get("pause_s", 0.1))
+                        logger.info(f"[搜索-视角] 扫描角度={angle:.1f}°, 速度={speed:.1f}°/s, 停顿={pause_s:.2f}s")
+                        enhanced_move.execute_scan_with_pause(angle, pause_s)
+                    elif search_action == Action.SEARCH_MOVE:
+                        # SearchStrategy 的 8 方向移动
+                        direction = str(search_cmd.params.get("direction", "W"))
+                        duration = float(search_cmd.params.get("duration", 0.5))
+                        pause_s = float(search_cmd.params.get("pause_s", 0.0))
+                        pan_angle, pan_dir = search_strategy.get_pan_parameters()
+                        logger.info(
+                            f"[搜索-走位] 方向={direction}, 时长={duration:.2f}s, "
+                            f"停顿={pause_s:.2f}s"
+                        )
+                        enhanced_move.execute_direction_move(direction, duration)
+                        if pause_s > 0:
+                            time.sleep(min(1.5, max(0.02, pause_s)))
+                    elif search_action in (Action.SEARCH_MOUSE,):
+                        # 旧版鼠标平移搜索（兼容）
                         dx = int(search_cmd.params.get("dx", args.search_step_px))
                         dy = int(search_cmd.params.get("dy", 0))
                         pause_s = float(search_cmd.params.get("pause_s", capture_interval))
-                        logger.info(f"[搜索-视角] dx={dx:+d}, dy={dy:+d}, pause={pause_s:.2f}s")
+                        logger.info(f"[搜索-视角(旧)] dx={dx:+d}, dy={dy:+d}, pause={pause_s:.2f}s")
                         send_input.mouse_move(dx, dy)
-                        time.sleep(min(1.5, max(0.02, pause_s)))
-                    elif search_action == Action.SEARCH_MOVE:
-                        direction = str(search_cmd.params.get("direction", "w"))
-                        duration = float(search_cmd.params.get("duration", 0.3))
-                        look_dx = int(search_cmd.params.get("look_dx", 0))
-                        look_dy = int(search_cmd.params.get("look_dy", 0))
-                        pause_s = float(search_cmd.params.get("pause_s", capture_interval))
-                        logger.info(
-                            f"[搜索-走位] key={direction}, duration={duration:.2f}s, "
-                            f"look=({look_dx:+d},{look_dy:+d}), pause={pause_s:.2f}s"
-                        )
-                        if look_dx != 0 or look_dy != 0:
-                            send_input.mouse_move(look_dx, look_dy)
-                        send_input.press_key(direction, duration=duration)
                         time.sleep(min(1.5, max(0.02, pause_s)))
                     elif search_action == Action.NO_OP:
                         logger.info("[搜索] 达到周期上限，暂停一次")
@@ -219,6 +270,9 @@ def main() -> int:
 
     except KeyboardInterrupt:
         logger.info("收到中断信号，退出测试")
+    finally:
+        if layered_overlay is not None:
+            layered_overlay.destroy()
 
     return 0
 

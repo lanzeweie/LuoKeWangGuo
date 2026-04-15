@@ -35,6 +35,7 @@ from src.core.capabilities.interception_sim import INTERCEPTION_AVAILABLE
 from src.core.capabilities.screen_cap import ScreenCaptureWithRegion
 from src.core.capabilities.detection_overlay import DetectionOverlay
 from src.core.capabilities.detection import DetectionResult
+from src.core.capabilities.detection_worker import DetectionWorker
 from src.core.capabilities.target_scoring import TargetScorer
 
 # ── CV 检测器 ──
@@ -292,7 +293,7 @@ def main():
             logger.warning(f"自动检测物理鼠标失败，将沿用当前默认设备: {e}")
 
     # ── 8. 策略 ──
-    search_strategy = SearchStrategy(legacy_mouse_action=False)
+    search_strategy = SearchStrategy()
     navigation_strategy = NavigationStrategy(center_tolerance=150, far_threshold=300, timeout_seconds=15.0)
 
     # ── 9. 瞄准投掷 ──
@@ -359,66 +360,20 @@ def main():
     capture_mode_timeout = 10.0      # 捕捉模式无目标超时时间（秒）
     capture_mode_timeout_until = 0.0 # 超时截止时间（0 表示未设置）
 
-    # ── 检测线程共享状态 ──
-    detect_lock = threading.Lock()
-    latest_frame = None           # 最新帧（用于主线程的 CV 检测）
-    latest_tracked: list = []     # 通过锁保护的最新跟踪结果
-    latest_det_results: list = []
-    latest_capture_detected = False   # 捕捉模式检测结果
-    latest_conf_cap = 0.0             # 捕捉模式匹配度
-    latest_battle_detected = False    # 战斗模式检测结果
-    detect_seq = 0                    # 检测序列号，主循环用它来确认已读到最新结果
-    detect_thread_stop = False
-
-    # 捕捉模式滞回：防止单帧漏检导致状态闪烁
+    # ── 捕捉模式滞回：防止单帧漏检导致状态闪烁 ──
     capture_mode_streak = 0           # 连续匹配计数（正=检测中，负=未检测）
     CAPTURE_STREAK_HYSTERESIS = 3     # 连续 N 帧确认
 
-    def detection_worker():
-        """后台检测线程：截图 + YOLO 检测 + CV 模式检测，不阻塞主循环"""
-        nonlocal latest_tracked, latest_det_results, latest_frame
-        nonlocal latest_capture_detected, latest_conf_cap, latest_battle_detected
-        nonlocal detect_seq
-        while not detect_thread_stop:
-            frame = cap.capture()
-            if frame is None:
-                time.sleep(capture_interval * 0.1)
-                continue
-
-            # ── YOLO 检测 ──
-            tracked = overlay_det.update(frame)
-
-            # 提取需要绘框的目标
-            draw_targets = [t for t in tracked if t.state in ("active", "lost", "candidate")]
-            det_results = []
-            for t in draw_targets:
-                x1, y1, x2, y2 = map(int, t.bbox)
-                det = DetectionResult(x1, y1, x2, y2, t.confidence, t.class_id)
-                det_results.append(det)
-
-            # ── CV 模式检测（同一线程，避免 dxcam 并发冲突） ──
-            cap_detected = False
-            conf_val = 0.0
-            if capture_detector is not None:
-                cap_detected, conf_val = capture_detector.is_capture_mode(frame)
-
-            batt_detected = False
-            if battle_detector is not None:
-                batt_detected, _ = battle_detector.is_battle_mode(frame)
-
-            with detect_lock:
-                latest_frame = frame
-                latest_tracked = tracked
-                latest_det_results = det_results
-                latest_capture_detected = cap_detected
-                latest_conf_cap = conf_val
-                latest_battle_detected = batt_detected
-                detect_seq += 1
-
-            time.sleep(capture_interval * 0.1)
-
-    detect_thread = threading.Thread(target=detection_worker, daemon=True)
-    detect_thread.start()
+    # ── 后台检测线程 ──
+    worker = DetectionWorker(
+        capture=cap,
+        overlay_detector=overlay_det,
+        capture_detector=capture_detector,
+        battle_detector=battle_detector,
+        cv_interval=0.1,
+        capture_interval=capture_interval,
+    )
+    worker.start()
 
     try:
         with cap:
@@ -456,13 +411,13 @@ def main():
                     continue
 
                 # ── 开启：执行全部流程 ──
-                # 从检测线程获取最新结果（所有检测在同一线程，避免 dxcam 并发冲突）
-                with detect_lock:
-                    tracked = list(latest_tracked)
-                    det_results = latest_det_results
-                    capture_detected = latest_capture_detected
-                    conf_cap = latest_conf_cap
-                    battle_detected = latest_battle_detected
+                # 从检测线程获取最新结果（非阻塞拉取）
+                snapshot = worker.get_latest()
+                tracked = snapshot.tracked
+                det_results = snapshot.det_results
+                capture_detected = snapshot.capture_detected
+                conf_cap = snapshot.conf_cap
+                battle_detected = snapshot.battle_detected
 
                 now = time.time()
 
@@ -732,7 +687,7 @@ def main():
     except KeyboardInterrupt:
         logger.info("\n用户中断，退出")
     finally:
-            detect_thread_stop = True
+            worker.stop()
             key_toggle.stop()
             overlay.destroy()
             detector.unload_model()

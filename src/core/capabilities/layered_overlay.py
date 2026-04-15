@@ -11,6 +11,7 @@ import win32gui
 import win32con
 import numpy as np
 from typing import List, Optional, Tuple
+from pathlib import Path
 from src.core.capabilities.detection import DetectionResult
 from src.core.capabilities.target_scoring import TargetScore
 from src.logger import get_logger
@@ -79,6 +80,24 @@ class BITMAPINFO(Structure):
 user32 = ctypes.windll.user32
 gdi32 = ctypes.windll.gdi32
 
+# ── 加载类别名称 ──
+def load_class_names(classes_path: Optional[str] = None) -> List[str]:
+    """从 classes.txt 加载类别名称"""
+    if classes_path is None:
+        # 默认路径：项目根目录 / data / classes.txt
+        # layered_overlay.py -> src/core/capabilities/layered_overlay.py
+        # 需要 parent.parent.parent.parent 才能到项目根目录
+        project_root = Path(__file__).parent.parent.parent.parent
+        classes_path = project_root / "data" / "classes.txt"
+
+    try:
+        with open(classes_path, 'r', encoding='utf-8') as f:
+            class_names = [line.strip() for line in f.readlines()]
+        return class_names
+    except Exception:
+        # 如果加载失败，返回默认列表
+        return ["目标"]
+
 user32.UpdateLayeredWindow.argtypes = [
     wintypes.HWND, wintypes.HDC, POINTER(POINT),
     POINTER(SIZE), wintypes.HDC, POINTER(POINT),
@@ -107,9 +126,6 @@ user32.SetWindowDisplayAffinity.restype = wintypes.BOOL
 
 class LayeredOverlay:
     """DWM 分层覆盖窗口"""
-
-    # 默认类别名称列表
-    DEFAULT_CLASS_NAMES = ["目标"]
 
     def __init__(
         self,
@@ -172,7 +188,8 @@ class LayeredOverlay:
         self._bits_ptr: Optional[int] = None
         self._buffer: Optional[np.ndarray] = None
         self._back_buffer: Optional[np.ndarray] = None
-        self._class_names = class_names or self.DEFAULT_CLASS_NAMES
+        # 加载类别名称，如果未提供则从 classes.txt 加载
+        self._class_names = class_names or load_class_names()
 
         # ── 尺寸配置 ──
         self._box_thickness = box_thickness
@@ -562,17 +579,22 @@ class LayeredOverlay:
                             if 0 <= py < self.height and 0 <= px < self.width:
                                 buf[py, px] = [255, 255, 255, 255]
 
-                # ── 类别标签（框上方，白色大字） ──
+                # ── 类别和详细信息标签（同一行，框上方） ──
                 class_name = self._class_names[det.class_id] if det.class_id < len(self._class_names) else f"ID{det.class_id}"
-                class_label_y = y1 + self._label_offset_y if y1 + self._label_offset_y >= 0 else y1 + 6
-                self._draw_text(class_name, x1 + 4, class_label_y, (255, 255, 255, 255), 'normal')
 
-                # ── 距离标签（框上方，类别旁边，颜色编码） ──
+                # 获取检测框的尺寸
+                bbox_width = det.x2 - det.x1
+                bbox_height = det.y2 - det.y1
+
+                # 构建完整的标签文本：类别 + 高度 + 宽度 + 距离
                 if score.estimated_distance > 0 and score.estimated_distance != float('inf'):
-                    dist_text = f"~{score.estimated_distance:.1f}m"
+                    full_label = f"{class_name} 距:{score.estimated_distance:.0f}"
                 else:
-                    dist_text = "~??"
-                self._draw_text(dist_text, x1 + 4, class_label_y + 18, color, 'small')
+                    full_label = f"{class_name} 距:??"
+
+                # 绘制在同一行
+                class_label_y = y1 + self._label_offset_y if y1 + self._label_offset_y >= 0 else y1 + 6
+                self._draw_text(full_label, x1 + 4, class_label_y, (255, 255, 255, 255), 'normal')
 
             # ── 验证进度条 ──
             if verification_required > 0 and verification_progress > 0:

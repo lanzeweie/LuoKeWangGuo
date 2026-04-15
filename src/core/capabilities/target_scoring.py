@@ -30,19 +30,17 @@ class TargetScorer:
         self,
         screen_width: int,
         screen_height: int,
-        max_distance_threshold: float = 2000.0,   # bbox 面积 < 2000 → FAR（远）
-        near_threshold: float = 8000.0,           # bbox 面积 2000~8000 → MEDIUM（中距）
-        capture_threshold: float = 15000.0,       # bbox 面积 > 8000 → CLOSE（可丢球）
         center_offset_x: int = 0,
         center_offset_y: int = 0,
-        distance_k: float = 72000.0,              # 距离常数 k = D * h，基于 720p 分辨率校准
+        # 伪距离阈值（值越大表示越远）
+        far_threshold: float = 40.0,     # 伪距离 > 40 → FAR
+        near_threshold: float = 15.0,    # 伪距离 15~40 → MEDIUM
+        # capture_threshold 现在保留但不再用于分类
     ):
         self._center_x = screen_width / 2 + center_offset_x
         self._center_y = screen_height / 2 + center_offset_y
-        self._max_distance_threshold = max_distance_threshold
+        self._far_threshold = far_threshold
         self._near_threshold = near_threshold
-        self._capture_threshold = capture_threshold
-        self._distance_k = distance_k
 
     @property
     def screen_center(self) -> Tuple[float, float]:
@@ -55,48 +53,47 @@ class TargetScorer:
         dy = cy - self._center_y
         return (dx * dx + dy * dy) ** 0.5
 
-    def classify_distance(self, bbox_area: float) -> str:
-        """根据 bbox 面积判断距离状态"""
-        if bbox_area < self._max_distance_threshold:
+    # 伪距离常数 k = 1000
+    # 效果：贴脸(area~20000)→7，中距(area~5000)→14，远方(area~500)→45
+    PSEUDO_DIST_K = 1000.0
+
+    def classify_distance(self, pseudo_dist: float) -> str:
+        """根据伪距离判断距离状态（值越大越远）"""
+        if pseudo_dist > self._far_threshold:
             return "FAR"
-        elif bbox_area < self._near_threshold:
+        elif pseudo_dist > self._near_threshold:
             return "MEDIUM"
         else:
             return "CLOSE"
 
-    def estimate_distance(self, pixel_height: float) -> float:
+    def estimate_distance(self, bbox_area: float) -> float:
         """
-        基于像素高度估算距离（相似三角形原理）
-        Distance = k / pixel_height
-        k 值通过已知距离和像素高度校准：k = D_known * h_known
-        返回相对距离单位，值越大表示越远
+        基于 bbox 面积估算伪距离（值越大表示越远，值越小表示越近）
+        使用面积的平方根，能有效抵抗目标待机动画（趴下/伸展）带来的长宽剧烈变化
         """
-        if pixel_height <= 0:
+        if bbox_area <= 0:
             return float('inf')
-        return self._distance_k / pixel_height
+        return round(self.PSEUDO_DIST_K / (bbox_area ** 0.5), 1)
 
     def score_detections(self, detections: List[DetectionResult]) -> List[TargetScore]:
         """
         对一批检测结果进行评分和排序
-        按距屏幕中心距离升序排列（最近的排第一）
+        按伪距离升序排列（越近越靠前）
         """
         if not detections:
             return []
 
         scored = []
         for det in detections:
-            dist = self.calculate_distance_to_center(det)
             area = float(det.area)
-            state = self.classify_distance(area)
-            # 计算估算距离（基于像素高度）
-            bbox_height = float(det.y2 - det.y1)
-            est_dist = self.estimate_distance(bbox_height)
+            est_dist = self.estimate_distance(area)
+            state = self.classify_distance(est_dist)
             scored.append(TargetScore(
                 detection=det,
-                distance_to_center=dist,
+                distance_to_center=est_dist,  # 复用字段，存伪距离
                 bbox_area=area,
                 distance_state=state,
-                priority_rank=0,  # 暂占位
+                priority_rank=0,
                 estimated_distance=est_dist,
             ))
 

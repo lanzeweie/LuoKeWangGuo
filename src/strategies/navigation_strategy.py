@@ -51,8 +51,7 @@ class NavigationStrategy(BaseStrategy):
             ctx: 应用上下文
 
         Returns:
-            Action.NO_OP 如果目标在中心范围内
-            Action.MOVE_WASD 如果需要移动
+            Action.MOVE_WASD 如果有目标（只按 W 前进，让鼠标对准目标）
         """
         # 检查是否有已验证的目标
         if not ctx.verified_target:
@@ -66,22 +65,13 @@ class NavigationStrategy(BaseStrategy):
             ctx.logger.warning("无法获取目标中心点")
             return Action.NO_OP
 
-        # 计算目标相对于屏幕中心的偏移
-        offset_x, offset_y = center_offset(
-            target_center,
-            ctx.frame_width,
-            ctx.frame_height
-        )
-
         # 计算距离
         screen_center = ctx.screen_center
         dist = distance(screen_center, target_center)
 
-        ctx.logger.debug_msg(
-            f"导航: 目标偏移=({offset_x}, {offset_y}), 距离={dist:.1f}px"
-        )
+        ctx.logger.debug_msg(f"导航: 目标距离={dist:.1f}px")
 
-        # 如果目标在中心容差范围内，停止移动
+        # 目标在中心容差范围内，停止移动
         if dist <= self.center_tolerance:
             ctx.logger.debug_msg(f"目标在中心范围内（{dist:.1f}px <= {self.center_tolerance}px），停止导航")
             self._reset_navigation_state()
@@ -95,7 +85,7 @@ class NavigationStrategy(BaseStrategy):
             self._reset_navigation_state()
             return Action.NO_OP
 
-        # 返回移动动作
+        # 返回移动动作：只按 W 前进（鼠标已对准目标）
         return Action.MOVE_WASD
 
     def get_movement_parameters(
@@ -109,8 +99,7 @@ class NavigationStrategy(BaseStrategy):
             ctx: 应用上下文
 
         Returns:
-            (direction, duration) - 移动方向和持续时间
-            None 如果无法计算
+            ('w', duration) - 始终向前走，duration 根据距离调整
         """
         if not ctx.verified_target:
             return None
@@ -119,26 +108,14 @@ class NavigationStrategy(BaseStrategy):
         if not target_center:
             return None
 
-        # 计算偏移
-        offset_x, offset_y = center_offset(
-            target_center,
-            ctx.frame_width,
-            ctx.frame_height
-        )
-
         # 计算距离
         screen_center = ctx.screen_center
         dist = distance(screen_center, target_center)
 
-        # 确定主要移动方向
-        if abs(offset_x) > abs(offset_y):
-            # 水平移动为主
-            direction = 'd' if offset_x > 0 else 'a'
-        else:
-            # 垂直移动为主
-            direction = 's' if offset_y > 0 else 'w'
+        # 始终向前走，方向永远是 'w'
+        direction = 'w'
 
-        # 根据距离计算移动时长
+        # 根据距离调整移动时长
         if dist > self.far_threshold:
             # 远距离：快速移动
             duration = 0.5
@@ -147,7 +124,7 @@ class NavigationStrategy(BaseStrategy):
             duration = 0.3
 
         ctx.logger.debug_msg(
-            f"移动参数: 方向={direction}, 时长={duration}s, 距离={dist:.1f}px"
+            f"移动参数: 方向={direction}（鼠标已对准目标）, 时长={duration}s, 距离={dist:.1f}px"
         )
 
         return direction, duration
