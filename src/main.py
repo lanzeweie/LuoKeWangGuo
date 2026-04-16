@@ -438,6 +438,7 @@ def main():
                                 config={},
                                 logger=logger,
                                 window_region=(0, 0, game_width, game_height),
+                                send_input=send_input,
                                 detections=[best.detection],
                                 verified_target=best.detection,
                             )
@@ -479,6 +480,7 @@ def main():
                             config={},
                             logger=logger,
                             window_region=(0, 0, game_width, game_height),
+                            send_input=send_input,
                             detections=[],
                         )
                         auto_e_pressed = False

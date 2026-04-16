@@ -44,8 +44,8 @@ class AppContext:
     last_detection_time: float = 0.0  # 上次检测时间戳
     consecutive_failures: int = 0      # 连续失败次数
 
-    # ========== 瞄准投掷依赖 ==========
-    # 这些引用用于在持续瞄准期间获取实时目标
+    # ========== 输入与执行依赖 ==========
+    send_input: Optional[Any] = None  # InterceptionSimulator 实例
     screen_capture: Optional[Any] = None  # ScreenCapture 实例
     detection_overlay: Optional[Any] = None  # DetectionOverlay 实例
     aim_and_throw: Optional[Any] = None  # AimAndThrow 实例

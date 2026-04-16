@@ -373,7 +373,10 @@ def main():
 
                 # ── 捕捉模式下的逻辑处理 ──
                 if is_capture_mode and not throw_executed_this_cycle and throw_thread is None:
+                    target = None  # 初始化 target 变量
+
                     if has_target:
+                        logger.info(f"检测到 {len(active)} 个活跃目标")
                         # 对活跃目标进行评分排序
                         scored = scorer.score_detections([
                             DetectionResult(
@@ -383,6 +386,12 @@ def main():
                             )
                             for t in active
                         ])
+
+                        # 确保有评分目标
+                        if not scored:
+                            logger.info("⚠️ 评分后无有效目标，跳过投掷")
+                            continue
+
                         target = scored[0]
 
                         logger.info("=" * 50)
@@ -395,27 +404,6 @@ def main():
                         # 将窗口放到前台
                         window_mgr.bring_to_foreground()
                         time.sleep(0.1)
-                    # 对活跃目标进行评分排序
-                    scored = scorer.score_detections([
-                        DetectionResult(
-                            *map(int, t.bbox),
-                            t.confidence,
-                            t.class_id,
-                        )
-                        for t in active
-                    ])
-                    target = scored[0]
-
-                    logger.info("=" * 50)
-                    logger.info("【自动瞄准 + 投掷】")
-                    logger.info(f"  目标中心: {target.detection.center}")
-                    logger.info(f"  置信度: {target.detection.confidence:.3f}")
-                    logger.info(f"  距离状态: {target.distance_state}")
-                    logger.info("=" * 50)
-
-                    # 将窗口放到前台
-                    window_mgr.bring_to_foreground()
-                    time.sleep(0.1)
 
                     # 定义实时目标获取函数（用于持续瞄准3秒期间）
                     def get_realtime_target() -> Optional[Tuple[int, int, float]]:
@@ -441,7 +429,7 @@ def main():
 
                     # 定义线程执行的投掷函数
                     def execute_throw():
-                        nonlocal throw_result
+                        nonlocal throw_result, target
                         try:
                             success = aim_throw.aim_and_throw(
                                 target=target,
@@ -457,17 +445,19 @@ def main():
                             with throw_lock:
                                 throw_result = False
 
-                    # 启动独立线程执行瞄准投掷（不阻塞主循环）
-                    throw_thread = Thread(target=execute_throw, daemon=True)
-                    throw_thread.start()
-                    logger.info("瞄准投掷线程已启动，主循环继续运行...")
+                    # 只有在有目标时才执行投掷
+                    if target is not None:
+                        # 启动独立线程执行瞄准投掷（不阻塞主循环）
+                        throw_thread = Thread(target=execute_throw, daemon=True)
+                        throw_thread.start()
+                        logger.info("瞄准投掷线程已启动，主循环继续运行...")
 
-                    # 标记本次周期已执行
-                    throw_executed_this_cycle = True
+                        # 标记本次周期已执行
+                        throw_executed_this_cycle = True
 
-                    # 重置捕捉模式（等待用户再次按 E）
-                    is_capture_mode = False
-                    logger.info("捕捉周期结束，等待再次进入捕捉模式...")
+                        # 重置捕捉模式（等待用户再次按 E）
+                        is_capture_mode = False
+                        logger.info("捕捉周期结束，等待再次进入捕捉模式...")
 
                 # ── 检查线程是否完成 ──
                 if throw_thread is not None and not throw_thread.is_alive():

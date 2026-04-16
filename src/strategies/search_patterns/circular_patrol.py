@@ -8,10 +8,16 @@
 from __future__ import annotations
 
 import random
+import time
 from collections import deque
+from typing import TYPE_CHECKING, Optional
 
 from src.strategies.base import Action
 from src.strategies.search_patterns.base_pattern import BaseSearchPattern, SearchCommand
+from src.strategies.search_patterns.enhanced_move_controller import EnhancedMoveController
+
+if TYPE_CHECKING:
+    from src.core.context import AppContext
 
 
 class CircularPatrolPattern(BaseSearchPattern):
@@ -30,13 +36,22 @@ class CircularPatrolPattern(BaseSearchPattern):
         self._commands: deque[SearchCommand] = deque()
         self._virtual_x = 0.0
         self._virtual_y = 0.0
+        self._move_controller: Optional[EnhancedMoveController] = None
+        self._initialized = False
 
     def reset(self) -> None:
         super().reset()
         self._commands.clear()
         self._virtual_x = 0.0
         self._virtual_y = 0.0
+        self._initialized = False
         self._build_patrol_commands()
+
+    def _ensure_move_controller(self, ctx: "AppContext") -> None:
+        """确保移动控制器已初始化"""
+        if not self._initialized and hasattr(ctx, 'send_input') and ctx.send_input is not None:
+            self._move_controller = EnhancedMoveController(ctx.send_input, debug=getattr(ctx, 'debug', False))
+            self._initialized = True
 
     def _append_move(self, direction: str, duration: float, look_dx: int) -> None:
         # 只记录W/S的前后位移，A/D用于转向不影响位置
@@ -149,10 +164,13 @@ class CircularPatrolPattern(BaseSearchPattern):
             )
         )
 
-    def next_command(self, ctx) -> SearchCommand:
+    def next_command(self, ctx: "AppContext") -> SearchCommand:
         if not self._commands:
             self._finished = True
             return SearchCommand(action=Action.NO_OP, label="circular_patrol_finished")
+
+        # 确保移动控制器已初始化
+        self._ensure_move_controller(ctx)
 
         cmd = self._commands.popleft()
         if not self._commands:
@@ -160,5 +178,48 @@ class CircularPatrolPattern(BaseSearchPattern):
 
         if hasattr(ctx, "logger") and ctx.logger:
             ctx.logger.debug_msg(f"[CircularPatrol] label={cmd.label}, params={cmd.params}")
+
+        # 如果是移动命令且有移动控制器，直接执行
+        if cmd.action == Action.SEARCH_MOVE and self._move_controller:
+            direction = cmd.params.get("direction", "")
+            duration = cmd.params.get("duration", 0.0)
+
+            if direction == "w":
+                # 前进
+                self._move_controller.execute_direction_move("W", duration)
+                # 同时处理视角调整
+                look_dx = cmd.params.get("look_dx", 0)
+                look_dy = cmd.params.get("look_dy", 0)
+                if look_dx != 0 or look_dy != 0:
+                    self._move_controller.execute_smooth_turn(look_dx, speed=30)
+
+                # 暂停
+                pause_s = cmd.params.get("pause_s", 0.1)
+                if pause_s > 0:
+                    time.sleep(pause_s)
+
+            elif direction in ("a", "d"):
+                # 转向
+                turn_duration = duration
+                angle = 30 if direction == "d" else -30
+                self._move_controller.execute_smooth_turn(angle, speed=60)
+                time.sleep(turn_duration)
+
+            elif direction == "s":
+                # 后退
+                self._move_controller.execute_direction_move("S", duration)
+                # 同时处理视角调整
+                look_dx = cmd.params.get("look_dx", 0)
+                look_dy = cmd.params.get("look_dy", 0)
+                if look_dx != 0 or look_dy != 0:
+                    self._move_controller.execute_smooth_turn(look_dx, speed=30)
+
+                # 暂停
+                pause_s = cmd.params.get("pause_s", 0.1)
+                if pause_s > 0:
+                    time.sleep(pause_s)
+
+            # 返回 NO_OP，因为我们已经执行了移动
+            return SearchCommand(action=Action.NO_OP, label=cmd.label + "_executed")
 
         return cmd

@@ -32,7 +32,7 @@ from src.logger import get_logger
 from src.strategies.base import Action
 from src.strategies.navigation_strategy import NavigationStrategy
 from src.strategies.search_strategy import SearchStrategy
-from src.actions.enhanced_move_controller import EnhancedMoveController
+from src.strategies.search_patterns.enhanced_move_controller import EnhancedMoveController
 
 
 def _build_context(logger, width: int, height: int) -> AppContext:
