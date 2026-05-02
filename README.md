@@ -301,20 +301,6 @@ uv run python -m src.tools.aim_config_editor
   uv run python tests/test_aim_and_throw.py --config my_config.json
   ```
 
-## 开发进度
-
-| 阶段 | 状态 | 详情 |
-|------|------|------|
-| 1. 环境搭建 | 完成 | uv、依赖、数据集 |
-| 2. 模型训练 | 完成 | mAP50=99.5% |
-| 3. 核心模块 | 完成 | 检测/截屏/移动/投掷/CV/战斗退出 |
-| 4. 架构重构 | 完成 | 三层架构：能力层/行动层/策略层 |
-| 5. 策略层 | 完成 | AppContext + 搜索/导航/瞄准策略 |
-| 6. 检测覆盖层 | 完成 | 跳帧调度/目标跟踪/插值平滑/防闪烁绘框 |
-| 7. 整合测试 | 待开始 | 状态机整合 + 端到端流程验证 |
-
-详细计划见 [docs/implementation_plan.md](docs/implementation_plan.md)
-
 ## 重要文件
 
 | 文件 | 路径 |
