@@ -1,3 +1,5 @@
+
+
 # 洛克王国 — 半自动精灵捕捉工具
 
 专注于一件事：用户走到精灵刷新点，工具自动完成小范围内的精灵识别、靠近、瞄准、投掷。
@@ -5,7 +7,7 @@
 2026/5/2
 通过计算机识别来识别目标完成捕捉，效率太慢，远不及人工。并且维护困难，每只精灵都要训练来认识，工作流大，效率低。故放弃不在维护。附带一个已经训练好的奇异草模型。   
 
-<video src="https://raw.githubusercontent.com/lanzeweie/LuoKeWangGuo/master/预览.mp4" width="100%" controls></video>
+https://github.com/lanzeweie/LuoKeWangGuo/blob/master/预览.mp4?raw=true
 
 需要安装Interception驱动  
 [Interception驱动](https://github.com/oblitum/Interception)   
