@@ -7,8 +7,7 @@
 2026/5/2
 通过计算机识别来识别目标完成捕捉，效率太慢，远不及人工。并且维护困难，每只精灵都要训练来认识，工作流大，效率低。故放弃不在维护。附带一个已经训练好的奇异草模型。   
 
-[![观看演示视频](预览.png)](https://github.com/lanzeweie/LuoKeWangGuo/blob/master/预览.mp4?raw=true)
-点击图片跳转视频
+<video src="https://github.com/user-attachments/assets/01741e2b-b1cf-4b63-b7d3-54acf5883dfb" width="100%" controls></video>
 
 需要安装Interception驱动  
 [Interception驱动](https://github.com/oblitum/Interception)   
