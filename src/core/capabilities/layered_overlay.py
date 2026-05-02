@@ -34,6 +34,7 @@ AC_SRC_OVER = 0x00
 AC_SRC_ALPHA = 0x01
 # 截屏时排除窗口（关键！防止覆盖层框被截到下一帧，导致 YOLO 看到"带框的宠物"漏检）
 WDA_EXCLUDEFROMCAPTURE = 0x00000011
+WDA_NONE = 0x00000000
 
 # ── ctypes 结构体 ──
 
@@ -153,6 +154,8 @@ class LayeredOverlay:
         bar_width: int = 100,
         bar_height: int = 10,
         bar_y: int = 16,
+        # 录制模式
+        recordable: bool = False,
     ):
         """
         初始化分层覆盖窗口
@@ -207,6 +210,7 @@ class LayeredOverlay:
         self._bar_width = bar_width
         self._bar_height = bar_height
         self._bar_y = bar_y
+        self._recordable = recordable
 
         # 字体相关 - 仅在需要时初始化
         self._font_cache = {}  # 字体缓存
@@ -245,7 +249,9 @@ class LayeredOverlay:
 
             # 关键修复：设置 WDA_EXCLUDEFROMCAPTURE，防止覆盖层被截屏截取
             # 否则画框会污染下一帧截图，导致 YOLO 看到"带框的宠物"漏检
-            user32.SetWindowDisplayAffinity(self._hwnd, WDA_EXCLUDEFROMCAPTURE)
+            # recordable=True 时使用 WDA_NONE，允许录屏软件捕获覆盖层（dxcam 走 DXGI 不受影响）
+            affinity = WDA_NONE if self._recordable else WDA_EXCLUDEFROMCAPTURE
+            user32.SetWindowDisplayAffinity(self._hwnd, affinity)
 
             # 创建离屏 DC
             self._screen_dc = win32gui.GetDC(0)

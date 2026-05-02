@@ -1,0 +1,16 @@
+# YOLOv8 数据集配置
+# train/val 按真实文件夹结构
+# names 按 classes.txt 顺序，class_id 即索引
+
+path: data
+
+train:
+  - images/电击小子家族
+
+val:
+  - images/电击小子家族
+
+nc: 1
+
+names:
+  0: 电击小子家族

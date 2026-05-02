@@ -407,7 +407,7 @@ def main():
 
                     # 定义实时目标获取函数（用于持续瞄准3秒期间）
                     def get_realtime_target() -> Optional[Tuple[int, int, float]]:
-                        """从实时检测中获取当前活跃目标的中心位置及面积"""
+                        """从实时检测中获取当前最佳目标的中心位置及面积（按距离评分）"""
                         current_frame = cap.capture()
                         if current_frame is None:
                             return None
@@ -418,12 +418,14 @@ def main():
                         if not current_detections:
                             return None
 
-                        # 选择置信度最高的目标
-                        current_target = max(current_detections, key=lambda d: d.confidence)
+                        # 按距离评分排序，选最近的目标（与初始选择逻辑一致）
+                        scored_targets = scorer.score_detections(current_detections)
+                        if not scored_targets:
+                            return None
 
-                        # 使用 DetectionResult.center 属性获取精确的中心点
-                        cx, cy = current_target.center
-                        bbox_area = float(current_target.area)
+                        best = scored_targets[0]
+                        cx, cy = best.detection.center
+                        bbox_area = best.bbox_area
 
                         return cx, cy, bbox_area
 

@@ -134,12 +134,17 @@ def main():
     parser.add_argument("--no-auto-detect-mouse", dest="auto_detect_mouse", action="store_false")
     parser.add_argument("--auto-detect-timeout", type=float, default=8.0)
     parser.add_argument("--search-step-px", type=int, default=40, help="搜索时每次鼠标平移像素")
-    parser.add_argument("--max-distance", type=float, default=50.0)
-    parser.add_argument("--near-threshold", type=float, default=100.0)
-    parser.add_argument("--capture-threshold", type=float, default=200.0)
+    parser.add_argument("--far-threshold", type=float, default=40.0, dest="far_threshold", help="伪距离 FAR 阈值")
+    parser.add_argument("--near-threshold", type=float, default=15.0, dest="near_threshold", help="伪距离 MEDIUM/CLOSE 阈值")
+    parser.add_argument("--fp-close-threshold", type=float, default=100.0, dest="fp_close_threshold",
+                        help="固定点位模式 CLOSE 阈值（伪距离 < 此值即按 E）")
     parser.add_argument("--center-offset-x", type=int, default=0)
     parser.add_argument("--center-offset-y", type=int, default=0)
     parser.add_argument("--aim-config", type=str, default=None, help="瞄准配置文件路径")
+    parser.add_argument("--fixed-point", dest="fixed_point", action="store_true", default=False,
+                        help="固定点位模式：仅视角搜索，不触发 WASD 行走和自动靠近")
+    parser.add_argument("--recordable", action="store_true", default=False,
+                        help="录制模式：覆盖层对录屏软件可见（OBS 等可录制到检测框）")
 
     args = parser.parse_args()
 
@@ -148,14 +153,23 @@ def main():
     print("=" * 60)
     print("  洛克王国半自动指定精灵捕捉工具")
     print("=" * 60)
+    if args.fixed_point:
+        print("  模式：固定点位（仅视角搜索 + 自动 E 键，不移动角色）")
+        print(f"  CLOSE 阈值：伪距离 < {args.fp_close_threshold} 即按 E（默认 100）")
+    if args.recordable:
+        print("  录制模式：已开启（覆盖层对录屏软件可见）")
     print("  控制：")
     print("  - 按 [ 键：开启/暂停捕捉流程")
     print("  - 开启时覆盖层显示绿色边框，暂停时边框消失")
     print("  - Ctrl+C：退出程序")
     print()
     print("  功能：")
-    print("  1. 搜索策略（鼠标平移 + 小范围走位）")
-    print("  2. 导航策略（WASD 靠近目标）")
+    if args.fixed_point:
+        print("  1. 搜索策略（仅鼠标平移视角，无 WASD 走位）")
+        print("  2. 导航策略（已禁用 — 固定点位不移动角色）")
+    else:
+        print("  1. 搜索策略（鼠标平移 + 小范围走位）")
+        print("  2. 导航策略（WASD 靠近目标）")
     print("  3. 瞄准投掷（Interception 驱动 + YOLO 实时检测）")
     print("  4. 战斗退出（ESC + CV 确认框点击）")
     print("=" * 60)
@@ -269,12 +283,12 @@ def main():
     )
 
     # ── 6. 目标评分器 ──
+    near_thr = args.fp_close_threshold if args.fixed_point else args.near_threshold
     scorer = TargetScorer(
         screen_width=game_width,
         screen_height=game_height,
-        max_distance_threshold=args.max_distance,
-        near_threshold=args.near_threshold,
-        capture_threshold=args.capture_threshold,
+        far_threshold=args.far_threshold,
+        near_threshold=near_thr,
         center_offset_x=args.center_offset_x,
         center_offset_y=args.center_offset_y,
     )
@@ -293,7 +307,7 @@ def main():
             logger.warning(f"自动检测物理鼠标失败，将沿用当前默认设备: {e}")
 
     # ── 8. 策略 ──
-    search_strategy = SearchStrategy()
+    search_strategy = SearchStrategy(fixed_point=args.fixed_point)
     navigation_strategy = NavigationStrategy(center_tolerance=150, far_threshold=300, timeout_seconds=15.0)
 
     # ── 9. 瞄准投掷 ──
@@ -321,6 +335,7 @@ def main():
         width=game_width, height=game_height,
         debug=args.debug,
         class_names=["奇丽草群组"],
+        recordable=args.recordable,
     )
     if not overlay.create_window():
         logger.error("分层窗口创建失败")
@@ -355,9 +370,13 @@ def main():
     # 自动进入捕捉状态
     auto_e_pressed = False           # 是否已按 E 等待捕捉界面
     auto_e_cooldown = 0.0            # 按 E 冷却时间（防止重复按）
+    auto_e_timeout = 5.0             # 按 E 后等待捕捉界面超时（秒）
+    auto_e_timeout_until = 0.0       # 超时截止时间（0 表示未设置）
+    auto_e_max_attempts = 3          # 最大按 E 尝试次数
+    auto_e_attempts = 0              # 当前已尝试次数
 
     # 捕捉模式超时（无目标时自动退出）
-    capture_mode_timeout = 10.0      # 捕捉模式无目标超时时间（秒）
+    capture_mode_timeout = 3.0       # 捕捉模式无目标超时时间（秒）
     capture_mode_timeout_until = 0.0 # 超时截止时间（0 表示未设置）
 
     # ── 捕捉模式滞回：防止单帧漏检导致状态闪烁 ──
@@ -407,6 +426,7 @@ def main():
                     # 重置自动进入捕捉的状态
                     auto_e_pressed = False
                     auto_e_cooldown = 0.0
+                    auto_e_attempts = 0
                     time.sleep(capture_interval * 2)  # 暂停时降低帧率
                     continue
 
@@ -424,53 +444,58 @@ def main():
                 # ── 搜索 / 导航 ──
                 # 使用 active + candidate 作为有效目标
                 valid_targets = [t for t in tracked if t.state in ("active", "candidate")]
-                if not is_capture_mode and not is_battle_mode and not throw_thread:
-                    if valid_targets:
-                        # 有目标 → 评分 + 导航/靠近决策
-                        scored = scorer.score_detections([
-                            DetectionResult(*map(int, t.bbox), t.confidence, t.class_id)
-                            for t in valid_targets
-                        ])
-                        if scored:
-                            best = scored[0]
-                            from src.core.context import AppContext
-                            ctx = AppContext(
-                                config={},
-                                logger=logger,
-                                window_region=(0, 0, game_width, game_height),
-                                send_input=send_input,
-                                detections=[best.detection],
-                                verified_target=best.detection,
-                            )
 
-                            # 根据 TargetScorer 的距离状态决定行为
-                            if best.distance_state == "CLOSE":
-                                # 足够近 → 自动按 E 进入捕捉
-                                if not auto_e_pressed and now > auto_e_cooldown:
-                                    logger.info(f"【自动进入捕捉】目标 CLOSE(bbox_area={best.bbox_area:.0f})，按 E 键...")
-                                    window_mgr.bring_to_foreground()
-                                    time.sleep(0.2)
-                                    send_input.press_key("e", duration=0.3)
-                                    auto_e_pressed = True
-                                    auto_e_cooldown = now + 3.0  # 3秒冷却
-                            elif best.distance_state == "MEDIUM":
-                                # 中等距离 → WASD 精细靠近
+                # 始终计算 scored，供导航决策和覆盖层显示共用
+                scored = scorer.score_detections([
+                    DetectionResult(*map(int, t.bbox), t.confidence, t.class_id)
+                    for t in valid_targets
+                ])
+
+                if not is_capture_mode and not is_battle_mode and not throw_thread:
+                    if scored:
+                        best = scored[0]
+                        from src.core.context import AppContext
+                        ctx = AppContext(
+                            config={},
+                            logger=logger,
+                            window_region=(0, 0, game_width, game_height),
+                            send_input=send_input,
+                            detections=[best.detection],
+                            verified_target=best.detection,
+                        )
+
+                        # 根据 TargetScorer 的距离状态决定行为
+                        if best.distance_state == "CLOSE":
+                            # 足够近 → 自动按 E 进入捕捉
+                            if not auto_e_pressed and now > auto_e_cooldown and auto_e_attempts < auto_e_max_attempts:
+                                logger.info(f"【自动进入捕捉】目标 CLOSE(伪距离={best.estimated_distance:.0f})，按 E 键...")
+                                window_mgr.bring_to_foreground()
+                                time.sleep(0.2)
+                                send_input.press_key("e", duration=0.3)
+                                auto_e_pressed = True
+                                auto_e_cooldown = now + 3.0  # 3秒冷却
+                                auto_e_timeout_until = now + auto_e_timeout  # 启动超时
+                                auto_e_attempts += 1
+                        elif best.distance_state == "MEDIUM":
+                            # 中等距离 → WASD 精细靠近（固定点位模式跳过）
+                            if not args.fixed_point:
                                 nav_action = navigation_strategy.execute(ctx)
                                 move_params = navigation_strategy.get_movement_parameters(ctx)
                                 if nav_action == Action.MOVE_WASD and move_params is not None:
                                     direction, duration = move_params
                                     # 中距离缩短移动时长
                                     duration = min(duration, 0.2)
-                                    logger.info(f"[导航-中距] 方向={direction} 时长={duration:.2f}s area={best.bbox_area:.0f}")
+                                    logger.info(f"[导航-中距] 方向={direction} 时长={duration:.2f}s 伪距离={best.estimated_distance:.0f}")
                                     send_input.press_key(direction, duration=duration)
                                     auto_e_pressed = False
-                            else:
-                                # FAR → WASD 快速靠近
+                        else:
+                            # FAR → WASD 快速靠近（固定点位模式跳过）
+                            if not args.fixed_point:
                                 nav_action = navigation_strategy.execute(ctx)
                                 move_params = navigation_strategy.get_movement_parameters(ctx)
                                 if nav_action == Action.MOVE_WASD and move_params is not None:
                                     direction, duration = move_params
-                                    logger.info(f"[导航-远距] 方向={direction} 时长={duration:.2f}s area={best.bbox_area:.0f}")
+                                    logger.info(f"[导航-远距] 方向={direction} 时长={duration:.2f}s 伪距离={best.estimated_distance:.0f}")
                                     send_input.press_key(direction, duration=duration)
                                     auto_e_pressed = False
                     else:
@@ -495,20 +520,34 @@ def main():
                             send_input.mouse_move(dx, dy)
                             time.sleep(min(1.5, max(0.02, pause_s)))
                         elif search_action == Action.SEARCH_MOVE:
-                            direction = str(search_cmd.params.get("direction", "w"))
-                            duration = float(search_cmd.params.get("duration", 0.3))
-                            look_dx = int(search_cmd.params.get("look_dx", 0))
-                            look_dy = int(search_cmd.params.get("look_dy", 0))
-                            pause_s = float(search_cmd.params.get("pause_s", capture_interval))
-                            logger.debug_msg(f"[搜索-走位] key={direction}")
-                            if look_dx != 0 or look_dy != 0:
-                                send_input.mouse_move(look_dx, look_dy)
-                            send_input.press_key(direction, duration=duration)
-                            time.sleep(min(1.5, max(0.02, pause_s)))
+                            # 固定点位模式：跳过 WASD 走位，仅保留视角微调
+                            if args.fixed_point:
+                                look_dx = int(search_cmd.params.get("look_dx", 0))
+                                look_dy = int(search_cmd.params.get("look_dy", 0))
+                                pause_s = float(search_cmd.params.get("pause_s", capture_interval))
+                                if look_dx != 0 or look_dy != 0:
+                                    logger.debug_msg(f"[搜索-视角微调] dx={look_dx:+d}, dy={look_dy:+d}")
+                                    send_input.mouse_move(look_dx, look_dy)
+                                time.sleep(min(1.5, max(0.02, pause_s)))
+                            else:
+                                direction = str(search_cmd.params.get("direction", "w"))
+                                duration = float(search_cmd.params.get("duration", 0.3))
+                                look_dx = int(search_cmd.params.get("look_dx", 0))
+                                look_dy = int(search_cmd.params.get("look_dy", 0))
+                                pause_s = float(search_cmd.params.get("pause_s", capture_interval))
+                                logger.debug_msg(f"[搜索-走位] key={direction}")
+                                if look_dx != 0 or look_dy != 0:
+                                    send_input.mouse_move(look_dx, look_dy)
+                                send_input.press_key(direction, duration=duration)
+                                time.sleep(min(1.5, max(0.02, pause_s)))
 
                 # ── 捕捉模式 → 瞄准投掷（带滞回，防止单帧漏检导致状态闪烁） ──
-                if capture_detected:
+                # 滞回逻辑：CV 高 + 有目标 才累积 streak；CV 高但无目标时重置
+                if capture_detected and valid_targets:
                     capture_mode_streak = max(capture_mode_streak + 1, 1)
+                elif capture_detected and not valid_targets:
+                    # CV 检测到界面但无 YOLO 目标，不累积 streak
+                    capture_mode_streak = min(capture_mode_streak, 0)
                 else:
                     capture_mode_streak = min(capture_mode_streak - 1, -1)
 
@@ -528,6 +567,7 @@ def main():
                     is_capture_mode = False
                     throw_triggered = False
                     auto_e_pressed = False  # 重置 E 标志
+                    auto_e_attempts = 0
                     capture_mode_timeout_until = 0.0
 
                 # 打印捕捉模式匹配度（调试用）
@@ -545,12 +585,26 @@ def main():
                         is_capture_mode = False
                         throw_triggered = False
                         auto_e_pressed = False
+                        auto_e_attempts = 0
                         capture_mode_timeout_until = 0.0
                         capture_mode_streak = 0  # 重置滞回计数器
                         overlay_det.reset()
                 else:
                     # 有目标或投掷已执行，重置超时
                     capture_mode_timeout_until = 0.0
+
+                # ── 自动按 E 超时：按 E 后长时间未检测到捕捉界面 → 重置回搜索 ──
+                if auto_e_pressed and auto_e_timeout_until > 0.0 and now >= auto_e_timeout_until:
+                    logger.warning("【按E超时】未检测到捕捉界面，重置回搜索模式")
+                    auto_e_pressed = False
+                    auto_e_timeout_until = 0.0
+                    auto_e_attempts = 0
+
+                # ── 按 E 次数过多：达到最大尝试次数后强制退出 ──
+                if auto_e_attempts >= auto_e_max_attempts and not auto_e_pressed:
+                    logger.warning("【按E次数过多】已达最大尝试次数，重置回搜索模式")
+                    auto_e_attempts = 0
+                    auto_e_cooldown = time.time() + 10.0  # 10秒冷却
 
                 if is_capture_mode and not throw_triggered and valid_targets and throw_thread is None:
                     scored = scorer.score_detections([
@@ -565,16 +619,27 @@ def main():
                         time.sleep(0.1)
 
                         def get_realtime_target() -> Optional[Tuple[int, int, float]]:
+                            """从实时检测中获取当前最佳目标的中心位置及面积（按距离评分）"""
                             current_frame = cap.capture()
                             if current_frame is None:
                                 return None
-                            current_tracked = overlay_det.update(current_frame)
-                            current_valid = [t for t in current_tracked if t.state in ("active", "candidate")]
-                            if not current_valid:
+
+                            # 直接进行 YOLO 检测，获取原始结果（不使用跟踪插值）
+                            current_detections = detector.detect(current_frame, target_class=args.target_class)
+
+                            if not current_detections:
                                 return None
-                            ct = current_valid[0]
-                            x1, y1, x2, y2 = ct.bbox
-                            return int((x1 + x2) / 2), int((y1 + y2) / 2), float((x2 - x1) * (y2 - y1))
+
+                            # 按距离评分排序，选最近的目标（与初始选择逻辑一致）
+                            scored_targets = scorer.score_detections(current_detections)
+                            if not scored_targets:
+                                return None
+
+                            best = scored_targets[0]
+                            cx, cy = best.detection.center
+                            bbox_area = best.bbox_area
+
+                            return cx, cy, bbox_area
 
                         def execute_throw():
                             nonlocal throw_result
@@ -606,6 +671,7 @@ def main():
                     logger.info("【战斗模式结束】")
                     is_battle_mode = False
                     auto_e_pressed = False
+                    auto_e_attempts = 0
 
                 if is_battle_mode and battle_exit is not None:
                     def frame_provider():
@@ -620,6 +686,7 @@ def main():
                         is_battle_mode = False
                         overlay_det.reset()
                         auto_e_pressed = False
+                        auto_e_attempts = 0
                     else:
                         logger.warning("战斗退出失败，稍后重试")
                         time.sleep(2.0)
@@ -653,22 +720,27 @@ def main():
                     status_lines.append("状态: 搜索中")
 
                 # 第2行：目标信息
-                if valid_targets:
-                    t = valid_targets[0]
-                    x1, y1, x2, y2 = map(int, t.bbox)
-                    cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
-                    area = (x2 - x1) * (y2 - y1)
-                    status_lines.append(f"目标: 中心({cx},{cy}) 面积{area:.0f}")
+                if scored:
+                    best = scored[0]
+                    det = best.detection
+                    cx, cy = det.center
+                    status_lines.append(f"目标: 中心({cx},{cy}) 伪距离={best.estimated_distance:.0f}({best.distance_state})")
                 else:
                     status_lines.append("目标: 无")
 
-                # 第3行：当前帧检测源
-                detect_mark = "YOLO(线程)" if overlay_det.is_detect_frame else "插值"
-                status_lines.append(f"帧源: {detect_mark}")
+                # 第3行：CV 匹配度 / 帧源
+                if auto_e_pressed:
+                    # 等待捕捉界面时，显示 CV 匹配度
+                    capture_conf = conf_cap if conf_cap is not None else 0.0
+                    battle_conf = conf_cap if battle_detected else 0.0
+                    status_lines.append(f"捕捉匹配度={capture_conf:.4f} | 帧源: {'YOLO(线程)' if overlay_det.is_detect_frame else '插值'}")
+                else:
+                    detect_mark = "YOLO(线程)" if overlay_det.is_detect_frame else "插值"
+                    status_lines.append(f"帧源: {detect_mark}")
 
-                # ── 覆盖层绘制（绿框 + 状态行） ──
+                # ── 覆盖层绘制（检测框 + 状态行） ──
                 overlay.draw_scored(
-                    scored_detections=[],
+                    scored_detections=scored,
                     current_state="运行中",
                     border_color=(0, 255, 0, 255),
                     status_lines=status_lines,
@@ -679,7 +751,8 @@ def main():
                 active_count = len([t for t in tracked if t.state == "active"])
                 cand_count = len([t for t in tracked if t.state == "candidate"])
                 valid_count = len(valid_targets)
-                print(f"\r[运行中] {capture_str} 目标:{valid_count}(A:{active_count} C:{cand_count})  |  {status_lines[0]}  |  {status_lines[1]}  |  {status_lines[2]}   ", end="", flush=True)
+                cv_info = f" capture_conf={conf_cap:.4f}" if conf_cap and conf_cap > 0.1 else ""
+                print(f"\r[运行中] {capture_str} 目标:{valid_count}(A:{active_count} C:{cand_count}){cv_info}  |  {status_lines[0]}  |  {status_lines[1]}  |  {status_lines[2]}   ", end="", flush=True)
 
                 # ── 帧率限制 ──
                 elapsed = time.time() - loop_start

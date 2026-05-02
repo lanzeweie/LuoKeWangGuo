@@ -80,3 +80,6 @@ data/X-AnyLabeling/*
 
 # 训练输出
 models/trained/
+tools/models
+data/dataset-eml.yaml
+models/dj

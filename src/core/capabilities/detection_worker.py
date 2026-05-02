@@ -81,6 +81,11 @@ class DetectionWorker:
         # CV 检测计时
         self._last_cv_time = 0.0
 
+        # 保持上一次 CV 结果（避免 cv_interval 间隔期内被重置为 False）
+        self._last_capture_detected = False
+        self._last_conf_cap = 0.0
+        self._last_battle_detected = False
+
     @property
     def is_running(self) -> bool:
         """是否正在运行"""
@@ -134,15 +139,20 @@ class DetectionWorker:
                 det_results.append(det)
 
             # ── 2. CV 模式检测（同一线程，避免 dxcam 并发冲突） ──
-            cap_detected = False
-            conf_cap = 0.0
             if self._capture_detector is not None and self._should_run_cv(now):
                 cap_detected, conf_cap = self._capture_detector.is_capture_mode(frame)
+                self._last_capture_detected = cap_detected
+                self._last_conf_cap = conf_cap
                 self._last_cv_time = now
+            else:
+                cap_detected = self._last_capture_detected
+                conf_cap = self._last_conf_cap
 
-            batt_detected = False
             if self._battle_detector is not None and self._should_run_cv(now):
                 batt_detected, _ = self._battle_detector.is_battle_mode(frame)
+                self._last_battle_detected = batt_detected
+            else:
+                batt_detected = self._last_battle_detected
 
             # ── 3. 原子写入 ──
             with self._lock:

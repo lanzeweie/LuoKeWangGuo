@@ -76,16 +76,26 @@ def main():
     logger.info("[2/5] 初始化屏幕捕获...")
     from src.core.capabilities.screen_cap import ScreenCaptureWithRegion
 
+    # 先用临时捕获器触发 dxcam 初始化（会改变窗口尺寸）
     temp_region = window_mgr.get_screen_region()
     temp_cap = ScreenCaptureWithRegion(fps=5, debug=False, region=temp_region)
-    with temp_cap:
-        time.sleep(0.3)
+    temp_cap.start(region=temp_region)
+    time.sleep(0.3)
 
+    # 获取正确的窗口尺寸
     region = window_mgr.get_screen_region()
     left, top, right, bottom = region
     game_width, game_height = right - left, bottom - top
     logger.info(f"  客户区: {game_width}x{game_height}")
 
+    # 停止临时捕获器，删除实例以释放 dxcam 单例
+    temp_cap.stop()
+    del temp_cap
+    import gc
+    gc.collect()
+    time.sleep(0.1)
+
+    # 创建正式的捕获器
     cap = ScreenCaptureWithRegion(fps=args.fps, debug=args.debug, region=region)
 
     # 3. 目标检测器
@@ -144,22 +154,31 @@ def main():
     else:
         logger.success("就绪！观察分层窗口中的检测框，按 Ctrl+C 退出\n")
 
-    # 先测试一下检测器
-    test_frame = cap.capture()
-    if test_frame is not None:
-        h, w = test_frame.shape[:2]
-        logger.info(f"测试帧尺寸: {w}x{h}")
-        test_dets = detector.detect(test_frame)
-        logger.info(f"直接检测结果: {len(test_dets)} 个目标")
-        for i, d in enumerate(test_dets):
-            logger.info(f"  [{i}] 置信度={d.confidence:.3f} 位置=({d.x1},{d.y1},{d.x2},{d.y2})")
-
     capture_interval = 1.0 / args.fps
     frame_count = 0
     printed_ids = set()  # 追踪已打印的目标 ID
 
     try:
         with cap:
+            # 等待捕获器就绪（dxcam 前几帧可能返回 None）
+            logger.info("等待捕获器就绪...")
+            for i in range(30):  # 最多重试 30 次
+                test_frame = cap.capture()
+                if test_frame is not None:
+                    logger.info(f"捕获器就绪 (第 {i+1} 次尝试)")
+                    h, w = test_frame.shape[:2]
+                    logger.info(f"测试帧尺寸: {w}x{h}")
+                    test_dets = detector.detect(test_frame)
+                    logger.info(f"直接检测结果: {len(test_dets)} 个目标")
+                    for j, d in enumerate(test_dets):
+                        logger.info(f"  [{j}] 置信度={d.confidence:.3f} 位置=({d.x1},{d.y1},{d.x2},{d.y2})")
+                    break
+                time.sleep(0.1)
+            else:
+                logger.error("捕获器初始化超时")
+                sys.exit(1)
+
+            logger.info("进入主循环...")
             while True:
                 loop_start = time.time()
                 frame = cap.capture()

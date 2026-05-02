@@ -14,6 +14,7 @@ from src.strategies.base import BaseStrategy, Action
 from src.strategies.search_patterns.base_pattern import SearchCommand
 from src.strategies.search_patterns.micro_look import MicroLookPattern
 from src.strategies.search_patterns.sweep_360 import Sweep360Pattern
+from src.strategies.search_patterns.sweep_180 import Sweep180Pattern
 from src.strategies.search_patterns.circular_patrol import CircularPatrolPattern
 
 if TYPE_CHECKING:
@@ -29,15 +30,23 @@ class SearchStrategy(BaseStrategy):
         max_pan_cycles: int = 6,
         micro_cycles_before_upgrade: int = 2,
         legacy_mouse_action: bool = True,
+        fixed_point: bool = False,
     ):
         self.micro_cycles_before_upgrade = micro_cycles_before_upgrade
         self.legacy_mouse_action = legacy_mouse_action
 
-        self._patterns = [
-            MicroLookPattern(),
-            Sweep360Pattern(),
-            CircularPatrolPattern(),
-        ]
+        if fixed_point:
+            # 固定点位模式：MicroLook + 180度来回扫
+            self._patterns = [
+                MicroLookPattern(),
+                Sweep180Pattern(),
+            ]
+        else:
+            self._patterns = [
+                MicroLookPattern(),
+                Sweep360Pattern(),
+                CircularPatrolPattern(),
+            ]
         self._pattern_index = 0
         self._micro_cycle_count = 0
         self._last_command = SearchCommand(action=Action.NO_OP, params={}, label="init")
@@ -83,8 +92,14 @@ class SearchStrategy(BaseStrategy):
                     self._pattern_index = 1
                     self._patterns[self._pattern_index].reset()
             elif current.name == "sweep_360":
-                self._pattern_index = 2
-                self._patterns[self._pattern_index].reset()
+                # sweep 完成后：如果有巡逻模式则进入巡逻，否则回到 micro 循环
+                if len(self._patterns) > 2:
+                    self._pattern_index = 2
+                    self._patterns[self._pattern_index].reset()
+                else:
+                    self._pattern_index = 0
+                    self._micro_cycle_count = 0
+                    self._patterns[self._pattern_index].reset()
             else:
                 # patrol 完成后 idle，再回到 micro
                 pause_s = float(command.params.get("pause_s", 1.2)) if command.action == Action.NO_OP else 1.2

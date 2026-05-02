@@ -80,7 +80,7 @@ class DetectionOverlay:
         lerp_alpha: float = 0.5,  # 插值平滑系数
         confirm_frames: int = 1,  # 候选→活跃所需帧数（降低为1，缓动场景下更容易转正）
         lost_tolerance: int = 2,  # 丢失容错帧数
-        candidate_lost_tolerance: int = 10,  # 候选目标的丢失容错帧数（更高的容忍度）
+        candidate_lost_tolerance: int = 6,  # 候选目标的丢失容错帧数（适度降低，避免目标永存）
         iou_threshold: float = 0.45,  # IoU 匹配阈值
         max_predict_distance: float = 80.0,  # Lost 状态最大预测距离（像素）
         draw_boxes: bool = True,  # 打框开关
@@ -125,9 +125,13 @@ class DetectionOverlay:
         self.confirm_frames = confirm_frames
         self.lost_tolerance = lost_tolerance
         # 确保 candidate_lost_tolerance 足够大，避免跳帧期间候选目标被销毁
-        self.candidate_lost_tolerance = max(
-            candidate_lost_tolerance,
-            detect_interval + confirm_frames + 2  # 最低保障：跳帧+确认+缓冲
+        # 但也要有上限，防止目标"永远不死"
+        self.candidate_lost_tolerance = min(
+            max(
+                candidate_lost_tolerance,
+                detect_interval + confirm_frames + 2  # 最低保障：跳帧+确认+缓冲
+            ),
+            15  # 上限：最多约 0.5 秒（30fps 下 15 帧）
         )
         self.iou_threshold = iou_threshold
         self.max_predict_distance = max_predict_distance

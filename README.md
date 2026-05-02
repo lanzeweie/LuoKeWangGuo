@@ -2,6 +2,16 @@
 
 专注于一件事：用户走到精灵刷新点，工具自动完成小范围内的精灵识别、靠近、瞄准、投掷。
 
+2026/5/2
+通过计算机识别来识别目标完成捕捉，效率太慢，远不及人工。并且维护困难，每只精灵都要训练来认识，工作流大，效率低。故放弃不在维护。附带一个已经训练好的奇异草模型。   
+
+需要安装Interception驱动  
+[Interception驱动](https://github.com/oblitum/Interception)   
+
+快速测试(使用uv)     
+uv sync   
+uv run python .\src\main.py --model .\LuoKeWangGuo\models\trained\luoke_pet.pt --fixed-point     
+
 ## 核心定位
 
 > **半自动** — 用户负责"走到哪只精灵面前"，工具负责"在精灵旁边完成靠近、瞄准、投掷"。
@@ -11,92 +21,98 @@
 
 ```
 src/
-├── main.py                          # 主入口 — 组装 AppContext + 启动循环
-├── logger.py                        # 日志
-├── config/                          # 配置管理（src 下）
-│   ├── __init__.py                  # 配置包
-│   └── aim_config.py               # 瞄准配置
+├── __init__.py                # Package init
+├── main.py                    # 主入口 — AppContext + 主循环
+├── logger.py                  # 日志
+├── config.py                  # CLI 参数解析 + Config dataclass
+├── config/                    # 瞄准行为配置
+│   ├── __init__.py           # Package init
+│   └── aim_config.py         # Aim configuration
+├── core/                      # 核心模块
+│   ├── __init__.py           # Package init
+│   ├── context.py            # AppContext — 黑板模式
+│   ├── game_logic.py         # 游戏逻辑计算（投掷参数、移动方向）
+│   ├── state_machine.py      # 状态机 — 状态跳转 + 策略调度
+│   └── capabilities/         # 核心能力层
+│       ├── aim_algorithms.py # 瞄准算法（补偿/预测/滤波）
+│       ├── detection.py      # YOLO 推理
+│       ├── detection_overlay.py # YOLO 检测覆盖层（跳帧/跟踪/插值/绘框）
+│       ├── detection_worker.py # 检测跳帧调度器
+│       ├── interception_sim.py # Interception 驱动级输入（拟人化算法）
+│       ├── layered_overlay.py # DWM 透明覆盖层
+│       ├── screen_cap.py     # DX12 截屏
+│       ├── target_scoring.py # 目标评分 & 优先级
+│       ├── target_verifier.py # 目标验证（多周期确认）
+│       ├── template_loader.py # 模板配置加载（类封装）
+│       └── window_mgr.py     # 窗口管理（客户区坐标）
+├── detectors/                 # CV 模板检测器（OpenCV）
+│   ├── __init__.py           # Package init
+│   ├── config_loader.py      # 配置加载公共函数
+│   ├── capture_mode_detector.py # 精灵球捕捉界面检测
+│   ├── battle_mode_detector.py # 战斗界面检测
+│   └── battle_exit_confirm_detector.py # 战斗逃跑确认框检测
+├── actions/                   # 行动层 — 高级动作组合
+│   ├── __init__.py           # Package init
+│   ├── aim_and_throw.py      # 瞄准 + 投掷执行
+│   └── battle_exit.py        # ESC 退出战斗
+├── strategies/                # 策略层 — 业务决策
+│   ├── __init__.py           # Package init
+│   ├── aim_strategy.py       # 瞄准策略
+│   ├── base.py               # Action 枚举 + BaseStrategy 抽象类
+│   ├── navigation_strategy.py # 导航策略
+│   ├── search_strategy.py    # 搜索策略
+│   └── search_patterns/      # 搜索模式实现
+│       ├── __init__.py       # Package init
+│       ├── base_pattern.py   # 基础搜索模式
+│       ├── circular_patrol.py # 圆形巡逻模式
+│       ├── enhanced_move_controller.py # WASD 移动执行器
+│       ├── micro_look.py     # 微调观察模式
+│       └── sweep_360.py      # 360 度扫掠模式
+├── utils/                     # 工具函数 — 纯数学计算
+│   ├── __init__.py           # Package init
+│   └── math_utils.py         # 距离、角度、面积
+├── components/                # UI 组件层
+│   └── coordinate_picker.py  # 相对坐标选择器 GUI
+└── tools/                     # 工具模块（GUI / 调试）
+    ├── __init__.py           # Package init
+    ├── aim_config_editor.py  # 瞄准配置编辑器
+    ├── annotate_roi.py       # ROI 标注工具
+    ├── check_interception.py # Interception 环境检查
+    ├── diagnose_window.py    # 窗口诊断工具
+    ├── mask_region_editor.py # 遮蔽区域编辑器
+    └── template_captor.py    # 模板截取工具
 
-├── core/                            # 能力层 — 底层工具库
-│   ├── context.py                  # AppContext — 黑板模式，共享运行时上下文
-│   ├── state_machine.py            # 状态机 — 状态跳转 + 策略调度
-│   ├── game_logic.py               # 游戏逻辑计算
-│   └── capabilities/               # 核心能力
-│       ├── detection.py            # YOLO 推理
-│       ├── screen_cap.py           # DX12 截屏
-│       ├── window_mgr.py           # 窗口管理
-│       ├── interception_sim.py     # Interception 驱动级输入（拟人化算法）
-│       ├── target_scoring.py       # 目标评分
-│       ├── target_verifier.py      # 目标验证（多周期确认）
-│       ├── layered_overlay.py      # DWM 透明覆盖层
-│       ├── detection_overlay.py    # YOLO 检测覆盖层（跳帧/跟踪/插值/绘框）
-│       └── template_loader.py      # 模板配置加载（类封装）
-│
-├── detectors/                       # CV 模板检测器（OpenCV）
-│   ├── config_loader.py            # 配置加载公共函数
-│   ├── capture_mode_detector.py    # 精灵球捕捉界面检测
-│   ├── battle_mode_detector.py     # 战斗界面检测
-│   └── battle_exit_confirm_detector.py  # 战斗逃跑确认框检测
-│
-├── actions/                         # 行动层 — 高级动作组合
-│   ├── move_controller.py          # WASD 移动执行
-│   ├── aim_and_throw.py            # 瞄准 + 投掷执行
-│   └── battle_exit.py              # ESC 退出战斗
-│
-├── strategies/                      # 策略层 — 业务决策
-│   ├── base.py                     # Action 枚举 + BaseStrategy 抽象类
-│   ├── search_strategy.py          # 搜索策略 — 屏幕怎么移、怎么找精灵
-│   ├── navigation_strategy.py      # 导航策略 — WASD 怎么靠近
-│   ├── aim_strategy.py             # 瞄准策略 — 鼠标怎么瞄准
-│   └── search_patterns/            # 搜索模式实现
-│       ├── base_pattern.py        # 基础搜索模式
-│       ├── circular_patrol.py      # 圆形巡逻模式
-│       ├── sweep_360.py            # 360度扫掠模式
-│       └── micro_look.py          # 微调观察模式
-│
-├── utils/                           # 工具函数 — 纯数学计算
-│   └── math_utils.py               # 距离、角度、面积
-│
-├── components/                      # UI 组件层
-│   └── coordinate_picker.py        # 相对坐标选择器 GUI
-│
-└── tools/                           # 工具模块（GUI / 调试）
-    ├── template_captor.py           # 模板截取工具
-    ├── mask_region_editor.py        # 遮蔽区域编辑器（多次框选，忽略 YOLO 检测区域）
-    ├── annotate_roi.py              # ROI 标注工具
-    ├── diagnose_window.py           # 窗口诊断工具
-    ├── check_interception.py        # Interception 环境检查
-    └── aim_config_editor.py         # 瞄准配置编辑器
+config/                        # 根级配置目录
+    ├── aim_config.json       # 瞄准行为配置文件
+    └── templates/            # CV 模板图片
+        ├── capture_mode.png  # 精灵球捕捉界面
+        ├── battle_mode.png   # 战斗界面
+        ├── battle_exit_confirm.png  # 逃跑确认框
+        └── templates_config.json  # 模板坐标配置（相对坐标）
 
-config/                              # 根级配置目录
-    ├── aim_config.json             # 瞄准行为配置文件
-    └── templates/                   # CV 模板图片
-        ├── capture_mode.png
-        ├── battle_mode.png
-        ├── battle_exit_confirm.png
-        └── templates_config.json   # 模板坐标配置
+tools/                         # 数据准备与训练脚本
+    ├── train.py              # 训练脚本
+    ├── prepare_dataset.py    # 数据集准备
+    ├── extract_frames.py     # 提取视频帧
+    ├── convert_labelme_to_yolo.py  # LabelMe 转 YOLO 格式
+    └── README.md             # 工具使用说明
 
-tools/                               # 数据准备与训练脚本
-    ├── train.py                     # 训练脚本
-    ├── prepare_dataset.py           # 数据集准备
-    ├── extract_frames.py            # 提取视频帧
-    ├── convert_labelme_to_yolo.py    # LabelMe 转 YOLO 格式
-    └── README.md                    # 工具使用说明
+data/                          # 数据集目录
+    ├── README.md             # 数据集说明
+    ├── classes.txt           # 类别名称列表
+    ├── dataset.yaml          # YOLO 训练配置文件
+    ├── labels.cache          # YOLO label cache
+    ├── images/               # 训练图片
+    ├── labels/               # 标注文件
+    └── xanylabeling_organizer.py  # LabelMe 组织者辅助脚本
 
-data/                                # 数据集目录
-    ├── dataset.yaml                 # YOLO 训练配置文件
-    ├── classes.txt                  # 类别名称列表
-    ├── images/                      # 训练图片
-    ├── labels/                      # 标注文件
-    ├── templates/                   # CV 模板图片
-    └── README.md                    # 数据集格式说明
-
-tests/                               # 测试套件
-    ├── test_aim_and_throw.py        # 瞄准投掷集成测试
-    ├── test_detection_overlay_realtime.py  # 检测覆盖层实时测试
-    ├── test_input_auto.py           # 输入自动化测试
-    ├── test_mode_detection.py       # CV 模式检测测试
-    └── test_search_navigation_realtime.py  # 搜索导航实时测试
+tests/                         # 测试套件
+    ├── __init__.py           # Package init
+    ├── test_aim_and_throw.py                  # 瞄准投掷集成测试
+    ├── test_detection_overlay_realtime.py     # 检测覆盖层实时测试
+    ├── test_input_auto.py                     # 输入自动化测试
+    ├── test_mode_detection.py                 # CV 模式检测测试
+    └── test_search_navigation_realtime.py     # 搜索导航实时测试
 ```
 
 ### 分层职责
@@ -253,8 +269,8 @@ uv run python tests/test_search_navigation_realtime.py  # 搜索导航实时测�
 | `aim_duration` | 瞄准持续时间（秒） | 3.0 | 精灵反应慢时可增加 |
 | `aim_tolerance` | 瞄准容忍度（像素） | 40 | 值越大越容易"命中" |
 | `mouse_to_view_ratio` | 鼠标视角比例 | 1.0 | 根据游戏灵敏度调整 |
-| `p_factor` | P控制因子（0-1） | 0.4 | 值越小越平滑，避免抖动 |
-| `check_interval` | 检查间隔（秒） | 0.05 | 值越小反应越快，但占用更多CPU |
+| `p_factor` | P 控制因子（0-1） | 0.4 | 值越小越平滑，避免抖动 |
+| `check_interval` | 检查间隔（秒） | 0.05 | 值越小反应越快，但占用更多 CPU |
 | `max_move_per_check` | 最大单次移动（像素） | 30 | 限制单次移动量避免过冲 |
 | `use_compensation` | 启用距离补偿 | true | 近距离可关闭，远距离建议开启 |
 | `use_prediction` | 启用动量预测 | true | 移动目标建议开启 |
@@ -264,10 +280,10 @@ uv run python tests/test_search_navigation_realtime.py  # 搜索导航实时测�
 ### 使用配置编辑器
 
 ```bash
-# 方式1：通过测试脚本启动配置编辑器
+# 方式 1：通过测试脚本启动配置编辑器
 uv run python tests/test_aim_and_throw.py --edit-config
 
-# 方式2：直接运行配置编辑器
+# 方式 2：直接运行配置编辑器
 uv run python -m src.tools.aim_config_editor
 ```
 

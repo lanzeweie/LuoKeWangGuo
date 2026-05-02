@@ -12,6 +12,7 @@ Interception 输入模拟模块（集成拟人化算法）
 所有坐标均为客户区相对坐标。
 """
 
+import gc
 import time
 import random
 import math
@@ -377,6 +378,8 @@ class InterceptionSimulator:
         """清理资源。"""
         if self._context and INTERCEPTION_AVAILABLE:
             lib.interception_destroy_context(self._context)
+            self._context = None
+            gc.collect()
 
     # ── 键盘操作 ────────────────────────────────────────────────────
 
@@ -499,6 +502,7 @@ class InterceptionSimulator:
             )
 
         total_sent = 0
+        stroke = ffi.new("InterceptionMouseStroke *")  # 循环外创建，避免资源泄漏
         for i in range(1, steps + 1):
             ratio = i / steps
             target_dx = int(rel_x * ratio)
@@ -517,7 +521,6 @@ class InterceptionSimulator:
                 cur_dy += random.choice([-1, 0, 1])
 
             if cur_dx != 0 or cur_dy != 0:
-                stroke = ffi.new("InterceptionMouseStroke *")
                 stroke.x = cur_dx
                 stroke.y = cur_dy
                 stroke.flags = 0  # 0 表示相对移动
@@ -530,8 +533,81 @@ class InterceptionSimulator:
             base_delay = 1 + (1 - speed) * 2
             time.sleep(base_delay / 1000.0)
 
+            # 定期垃圾回收，防止 CFFI 对象累积耗尽资源
+            if i % 50 == 0:
+                gc.collect()
+
         # 移动结束后给一个短暂停顿，符合人类操作习惯
         time.sleep(random.uniform(0.02, 0.05))
+        return total_sent
+
+    def mouse_move_fast(self, rel_x: int, rel_y: int) -> int:
+        """快速相对移动（用于大距离快速定位）。
+
+        使用 10-15px 步长，比 mouse_move 快 5-10 倍。
+        保留 Fitts's Law 变速和微颤机制。
+
+        Args:
+            rel_x: 相对 X 偏移
+            rel_y: 相对 Y 偏移
+
+        Returns:
+            发送的事件数
+        """
+        if not getattr(self, "_mouse_device", None):
+            raise RuntimeError("鼠标设备未就绪，请先执行硬件捕获")
+
+        distance = math.sqrt(rel_x**2 + rel_y**2)
+        if distance == 0:
+            return 0
+
+        # 大步长（10-15px），高频（0.5-1ms 延迟）
+        max_pixels_per_step = 12
+        steps = max(3, int(distance / max_pixels_per_step))
+
+        if self.debug:
+            self.logger.debug_msg(
+                f"Mouse: MOVE_FAST(rel) ({rel_x:+d},{rel_y:+d}), "
+                f"distance={distance:.1f}px, steps={steps} (快速模式)"
+            )
+
+        total_sent = 0
+        stroke = ffi.new("InterceptionMouseStroke *")
+        for i in range(1, steps + 1):
+            ratio = i / steps
+            target_dx = int(rel_x * ratio)
+            target_dy = int(rel_y * ratio)
+
+            prev_ratio = (i - 1) / steps if i > 1 else 0
+            prev_dx = int(rel_x * prev_ratio)
+            prev_dy = int(rel_y * prev_ratio)
+
+            cur_dx = target_dx - prev_dx
+            cur_dy = target_dy - prev_dy
+
+            # 微颤：每 10-15 步一次 +/-1px
+            if i % random.randint(10, 15) == 0:
+                cur_dx += random.choice([-1, 0, 1])
+                cur_dy += random.choice([-1, 0, 1])
+
+            if cur_dx != 0 or cur_dy != 0:
+                stroke.x = cur_dx
+                stroke.y = cur_dy
+                stroke.flags = 0
+                stroke.state = 0
+                lib.interception_send(self._context, self._mouse_device, stroke, 1)
+                total_sent += 1
+
+            # 变速延迟：0.5ms ~ 1ms
+            speed = fitts_speed_profile(i / steps, distance)
+            base_delay = 0.5 + (1 - speed) * 0.5
+            time.sleep(base_delay / 1000.0)
+
+            if i % 50 == 0:
+                gc.collect()
+
+        # 短暂停顿
+        time.sleep(random.uniform(0.01, 0.02))
         return total_sent
 
     def mouse_move_to(self, rel_x: int, rel_y: int) -> int:
@@ -584,6 +660,7 @@ class InterceptionSimulator:
         # 沿路径移动
         prev_point = path[0]
         total_sent = 0
+        stroke = ffi.new("InterceptionMouseStroke *")  # 循环外创建，避免资源泄漏
 
         for i, point in enumerate(path[1:], 1):
             # 计算相对移动量
@@ -596,7 +673,6 @@ class InterceptionSimulator:
                 dy += random.randint(-2, 2)
 
             if dx != 0 or dy != 0:
-                stroke = ffi.new("InterceptionMouseStroke *")
                 stroke.x = dx
                 stroke.y = dy
                 stroke.flags = 0
@@ -619,7 +695,6 @@ class InterceptionSimulator:
             direction = random.choice([-1, 1])
 
             # 过冲
-            stroke = ffi.new("InterceptionMouseStroke *")
             stroke.x = direction * overshoot
             stroke.y = 0
             stroke.flags = 0
@@ -730,6 +805,7 @@ class InterceptionSimulator:
         # 分段移动
         step_size = 30
         steps = max(1, max(abs(dx), abs(dy)) // step_size)
+        stroke = ffi.new("InterceptionMouseStroke *")  # 循环外创建
 
         for i in range(steps):
             ratio = (i + 1) / steps
